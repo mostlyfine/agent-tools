@@ -50,16 +50,25 @@ alias ghc="copilot \
 "
 
 function dev-session() {
-  local SESSION_NAME=${1:-"dev-session"}
-  if ! tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    tmux new-session -d -s "$SESSION_NAME"
-    tmux split-window -v -t "$SESSION_NAME:0.0" -p 80
-    tmux split-window -h -t "$SESSION_NAME:0.1" -p 50
-    tmux send-keys -t "$SESSION_NAME:0.0" "scripts/agent-ps -w -n" Enter
-    tmux send-keys -t "$SESSION_NAME:0.1" "ls" Enter
-    tmux send-keys -t "$SESSION_NAME:0.2" "claude" Enter
-    tmux select-pane -t "$SESSION_NAME:0.0"
+  local SESSION_NAME=${1:-"dev-session"} WINDOW_INDEX=0 PANE_COUNT
+
+  if [ -n "$TMUX" ]; then
+    read -r SESSION_NAME WINDOW_INDEX PANE_COUNT < <(tmux display-message -p '#{session_name} #{window_index} #{window_panes}')
+  else
+    tmux new-session -d -s "$SESSION_NAME" 2>/dev/null || true
+    PANE_COUNT=$(tmux display-message -p -t "$SESSION_NAME:0" '#{window_panes}')
   fi
-  tmux attach-session -t "$SESSION_NAME"
+
+  local TARGET="$SESSION_NAME:$WINDOW_INDEX"
+
+  if [ "$PANE_COUNT" -eq 1 ]; then
+    tmux split-window -v -t "$TARGET.0" -p 80
+    tmux split-window -h -t "$TARGET.1" -p 50
+    tmux send-keys -t "$TARGET.0" "scripts/agent-ps -w -n" Enter
+    tmux send-keys -t "$TARGET.1" "claude" Enter
+    tmux select-pane -t "$TARGET.0"
+  fi
+
+  [ -z "$TMUX" ] && tmux attach-session -t "$SESSION_NAME"
 }
 
