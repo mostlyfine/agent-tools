@@ -1,0 +1,617 @@
+#!/usr/bin/env python3
+"""agent-ps: list Claude Code / GitHub Copilot CLI sessions running in tmux panes."""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import select
+import shutil
+import signal
+import subprocess
+import sys
+import termios
+import time
+import tty
+import unicodedata
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import NamedTuple
+
+
+def shorten_dir(path: str) -> str:
+    try:
+        path = "~/" + str(Path(path).relative_to(Path.home()))
+    except ValueError:
+        pass
+    if len(path) > 30:
+        path = "..." + path[-27:]
+    return path
+
+
+_TASK_MAX_LEN = 55
+
+_CLAUDE_IDLE_MARKS = ("✳", "✴", "✺", "✻")
+_CLAUDE_CHOICE_CURSOR_RE = re.compile(r"❯\s+\d+\.")
+_CLAUDE_NAV_HINT_RE = re.compile(
+    r"Do you want to (proceed|allow)|Press Enter to (confirm|submit)"
+)
+_NON_CONTENT_BORDER_RE = re.compile(r"^[\s│╰╯─╭╮]*$")
+
+
+def _is_braille(ch: str) -> bool:
+    # Claude spinner uses Braille Patterns block (U+2800–U+28FF)
+    return bool(ch) and 0x2800 <= ord(ch) <= 0x28FF
+
+
+def _visual_width(s: str) -> int:
+    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in s)
+
+
+def _ljust_visual(s: str, width: int) -> str:
+    return s + " " * max(0, width - _visual_width(s))
+
+
+def _truncate(s: str, max_len: int) -> str:
+    assert max_len >= 3
+    return s[:max_len - 3] + "..." if len(s) > max_len else s
+
+
+def claude_task(title: str) -> str:
+    task = title
+    if task and (task[0] in _CLAUDE_IDLE_MARKS or _is_braille(task[0])):
+        task = task[1:]
+    task = task.removeprefix("Claude Code").lstrip()
+    return _truncate(task, _TASK_MAX_LEN)
+
+
+def copilot_task(title: str) -> str:
+    return _truncate(title.removeprefix("\U0001f916").lstrip(), _TASK_MAX_LEN)
+
+
+_COPILOT_NAV_HINT_RE = re.compile(
+    r"↑↓ to (navigate|select)|Enter to (select|confirm|submit)"
+)
+
+
+def copilot_title_status(title: str) -> str:
+    return "running" if title.startswith("\U0001f916") else "idle"
+
+
+def copilot_status(title: str, content: str) -> str:
+    lines = content.splitlines()
+    if _detect_waiting_for_input(lines, _COPILOT_NAV_HINT_RE):
+        return "waiting_for_input"
+    return copilot_title_status(title)
+
+
+def is_copilot_pane(cmd: str, pid: str) -> bool:
+    # copilot sometimes runs as a child of node — check child PIDs too
+    if cmd == "copilot":
+        return True
+    if cmd != "node":
+        return False
+
+    try:
+        pgrep = subprocess.run(
+            ["pgrep", "-P", pid],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    if pgrep.returncode != 0 or not pgrep.stdout.strip():
+        return False
+
+    child_pids = pgrep.stdout.split()
+    try:
+        ps_out = subprocess.run(
+            ["ps", "-o", "command=", "-p", *child_pids],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    if ps_out.returncode != 0:
+        return False
+    return "copilot" in ps_out.stdout
+
+
+def claude_title_status(title: str) -> str:
+    if not title:
+        return "unknown"
+    first = title[0]
+    if first in _CLAUDE_IDLE_MARKS:
+        return "idle"
+    if _is_braille(first):
+        return "running"
+    return "unknown"
+
+
+def _content_has_braille(content: str) -> bool:
+    return any(_is_braille(ch) for ch in content)
+
+
+def _has_only_borders_after(lines, start_idx) -> bool:
+    for line in lines[start_idx + 1:]:
+        if not _NON_CONTENT_BORDER_RE.match(line):
+            return False
+    return True
+
+
+def _detect_waiting_for_input(lines: list, pattern: re.Pattern) -> bool:
+    for i in range(len(lines) - 1, -1, -1):
+        line = lines[i]
+        if pattern.search(line):
+            return _has_only_borders_after(lines, i)
+        if not _NON_CONTENT_BORDER_RE.match(line):
+            return False
+    return False
+
+
+def claude_status(title: str, content: str) -> str:
+    if _CLAUDE_CHOICE_CURSOR_RE.search(content):
+        return "waiting_for_input"
+    lines = content.splitlines()
+    if _detect_waiting_for_input(lines, _CLAUDE_NAV_HINT_RE):
+        return "waiting_for_input"
+    if _content_has_braille(content):
+        return "running"
+    return claude_title_status(title)
+
+
+_CLAUDE_VERSION_CMD_RE = re.compile(r"^\d+\.\d+\.\d+$")
+_CLAUDE_TITLE_MARK = "Claude Code"
+
+
+def is_claude_pane(cmd: str, title: str) -> bool:
+    if _CLAUDE_VERSION_CMD_RE.match(cmd or ""):
+        return True
+    if _CLAUDE_TITLE_MARK in (title or ""):
+        return True
+    return False
+
+
+@dataclass
+class PaneRaw:
+    pane_id: str
+    cmd: str
+    dir: str
+    pid: str
+    title: str
+
+
+@dataclass
+class Pane:
+    agent: str
+    pane_id_num: str
+    status: str
+    task: str
+    dir: str
+    last_message: str = ""
+    label: str = ""
+
+
+def reconcile_selection(selected, panes):
+    if selected is None:
+        return None
+    return selected if selected in {p.pane_id_num for p in panes} else None
+
+
+_DIR_UP_KEYS = {"up", "k"}
+_DIR_DOWN_KEYS = {"down", "j"}
+
+
+def handle_key(key, panes, selected):
+    if key == "enter":
+        if selected is None:
+            return None, None
+        return selected, "focus"
+
+    if key == "escape":
+        return None, None
+
+    if key in _DIR_UP_KEYS or key in _DIR_DOWN_KEYS:
+        if not panes:
+            return None, None
+        if selected is None:
+            return panes[0].pane_id_num, None
+        ids = [p.pane_id_num for p in panes]
+        try:
+            idx = ids.index(selected)
+        except ValueError:
+            return panes[0].pane_id_num, None
+        if key in _DIR_UP_KEYS:
+            idx = max(0, idx - 1)
+        else:
+            idx = min(len(ids) - 1, idx + 1)
+        return ids[idx], None
+
+    return selected, None
+
+
+_KEY_MAP = {
+    b"\r": "enter",
+    b"\n": "enter",
+    b"j": "j",
+    b"k": "k",
+    b"\x1b": "escape",
+    b"\x1b[A": "up",
+    b"\x1b[B": "down",
+}
+
+
+def _classify_key(buf):
+    return _KEY_MAP.get(buf, "other")
+
+
+def wait_for_key(timeout):
+    """Block up to `timeout` seconds for a key. Returns key string or None."""
+    fd = sys.stdin.fileno()
+    rlist, _, _ = select.select([sys.stdin], [], [], timeout)
+    if not rlist:
+        return None
+    try:
+        first = os.read(fd, 1)
+    except OSError:
+        return None
+    if first != b"\x1b":
+        return _classify_key(first)
+    # Possible escape sequence; read up to 2 more bytes with short timeout
+    rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
+    if not rlist:
+        return _classify_key(first)
+    try:
+        rest = os.read(fd, 2)
+    except OSError:
+        return _classify_key(first)
+    return _classify_key(first + rest)
+
+
+def focus_pane(pane_id_num):
+    # select-window first to handle cross-window panes; select-pane then focuses within
+    target = f"%{pane_id_num}"
+    for args in (
+        ["tmux", "select-window", "-t", target],
+        ["tmux", "select-pane", "-t", target],
+    ):
+        try:
+            subprocess.run(
+                args,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            pass
+
+
+_PANE_FORMAT = "#{pane_id}|#{pane_current_command}|#{pane_current_path}|#{pane_pid}|#{pane_title}"
+
+
+def current_session() -> str:
+    out = subprocess.run(
+        ["tmux", "display-message", "-p", "#S"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if out.returncode != 0:
+        raise RuntimeError(f"tmux display-message failed: {out.stderr.strip()}")
+    return out.stdout.strip()
+
+
+def list_panes(session: str) -> list:
+    cmd = ["tmux", "list-panes", "-t", session, "-s", "-F", _PANE_FORMAT]
+    out = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if out.returncode != 0:
+        raise RuntimeError(f"tmux list-panes failed: {out.stderr.strip()}")
+    panes = []
+    for line in out.stdout.splitlines():
+        if not line:
+            continue
+        parts = line.split("|", 4)
+        if len(parts) != 5:
+            continue
+        panes.append(PaneRaw(*parts))
+    return panes
+
+
+def capture_pane(pane_id: str) -> str:
+    out = subprocess.run(
+        ["tmux", "capture-pane", "-t", pane_id, "-p"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if out.returncode != 0:
+        return ""
+    return out.stdout
+
+
+class _AgentCfg(NamedTuple):
+    name: str
+    label: str
+    is_pane: Callable[["PaneRaw"], bool]
+    get_status: Callable[[str, str], str]
+    get_task: Callable[[str], str]
+
+
+def _is_claude(raw: PaneRaw) -> bool:
+    return is_claude_pane(raw.cmd, raw.title)
+
+
+def _is_copilot(raw: PaneRaw) -> bool:
+    return is_copilot_pane(raw.cmd, raw.pid)
+
+
+_AGENT_CONFIGS = [
+    _AgentCfg("claude", "Claude", _is_claude, claude_status, claude_task),
+    _AgentCfg("copilot", "Copilot", _is_copilot, copilot_status, copilot_task),
+]
+
+
+def collect_panes(session: str) -> list:
+    raws = list_panes(session)
+    agent_raws = []
+    for raw in raws:
+        pane_id_num = raw.pane_id.removeprefix("%")
+        for cfg in _AGENT_CONFIGS:
+            if cfg.is_pane(raw):
+                agent_raws.append((raw, pane_id_num, cfg))
+                break
+
+    def _build(args):
+        raw, pane_id_num, cfg = args
+        content = capture_pane(raw.pane_id)
+        return Pane(
+            agent=cfg.name,
+            pane_id_num=pane_id_num,
+            status=cfg.get_status(raw.title, content),
+            task=cfg.get_task(raw.title),
+            dir=shorten_dir(raw.dir),
+            last_message=extract_last_message(content),
+            label=cfg.label,
+        )
+
+    if not agent_raws:
+        return []
+    with ThreadPoolExecutor(max_workers=min(8, len(agent_raws))) as ex:
+        return list(ex.map(_build, agent_raws))
+
+
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
+_GREEN = "\033[32m"
+_YELLOW = "\033[33m"
+_RESET = "\033[0m"
+_REVERSE = "\033[7m"
+
+_STATUS_GLYPH = {
+    "running": ("●", _GREEN),
+    "idle": ("○", _YELLOW),
+    "waiting_for_input": (">", _YELLOW),
+}
+
+
+def _status_glyph(status: str):
+    return _STATUS_GLYPH.get(status, ("?", _DIM))
+
+
+def render(panes, session, selected_pane_id=None):
+    sep = "─" * shutil.get_terminal_size().columns
+    lines = []
+    lines.append(f"{_BOLD}  {'AGENT':<8}{'ID':>5}  {'TASK':<55} DIR{_RESET}")
+    lines.append(sep)
+    if not panes:
+        lines.append(f"No agent sessions found in tmux session: {session}")
+    else:
+        for p in panes:
+            glyph, color = _status_glyph(p.status)
+            marker = "▶ " if p.pane_id_num == selected_pane_id else "  "
+            row = (
+                f"{marker}{color}{glyph}{_RESET}  {p.agent:<8}"
+                f"{_DIM}{p.pane_id_num:>5}{_RESET}  "
+                f"{_ljust_visual(p.task, 55)} {_DIM}{p.dir}{_RESET}"
+            )
+            if p.pane_id_num == selected_pane_id:
+                inner = row.replace(_RESET, _RESET + _REVERSE)
+                row = f"{_REVERSE}{inner}{_RESET}"
+            lines.append(row)
+    return "\n".join(lines)
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        prog="agent-ps",
+        description="List Claude Code / GitHub Copilot CLI sessions in tmux",
+    )
+    parser.add_argument("-w", "--watch", nargs="?", const=1, type=int, default=None,
+                        help="watch mode (default 1s interval)")
+    parser.add_argument("-n", "--notify", action="store_true",
+                        help="send terminal notification on idle/waiting transitions")
+    ns = parser.parse_args(argv)
+
+    watch_set = ns.watch is not None
+    interval = ns.watch if ns.watch else 1
+    return argparse.Namespace(
+        watch=watch_set, interval=interval, notify=ns.notify,
+    )
+
+
+def check_deps() -> None:
+    if shutil.which("tmux") is None:
+        print("error: tmux is not installed", file=sys.stderr)
+        raise SystemExit(1)
+    if not os.environ.get("TMUX"):
+        print("error: agent-ps must be run inside a tmux session", file=sys.stderr)
+        raise SystemExit(1)
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    check_deps()
+    session = current_session()
+    if args.watch:
+        watch_loop(args, session)
+        return 0
+    panes = collect_panes(session)
+    print(render(panes, session))
+    return 0
+
+
+_ANSI_CAPS = {
+    "civis": "\033[?25l",
+    "cnorm": "\033[?25h",
+    "clear": "\033[2J\033[H",
+    "home": "\033[H",
+    "ed": "\033[J",
+}
+
+
+def _tput(arg: str) -> None:
+    seq = _ANSI_CAPS.get(arg)
+    if seq:
+        sys.stdout.write(seq)
+        sys.stdout.flush()
+
+
+def watch_loop(args, session):
+    needs_clear = True
+    is_tty = sys.stdin.isatty()
+    fd = sys.stdin.fileno() if is_tty else -1
+    old_termios = termios.tcgetattr(fd) if is_tty else None
+
+    def _restore_tty():
+        if old_termios is not None:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_termios)
+            except termios.error:
+                pass
+
+    def _on_winch(signum, frame):
+        nonlocal needs_clear
+        needs_clear = True
+
+    def _on_exit(signum, frame):
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGINT, _on_exit)
+    signal.signal(signal.SIGTERM, _on_exit)
+    if hasattr(signal, "SIGWINCH"):
+        signal.signal(signal.SIGWINCH, _on_winch)
+
+    if is_tty:
+        tty.setcbreak(fd)
+    _tput("civis")
+    _tput("clear")
+
+    selected_pane_id = None
+    prev_status: dict = {}
+    try:
+        while True:
+            try:
+                panes = collect_panes(session)
+            except Exception as e:
+                print(f"agent-ps: {e}", file=sys.stderr)
+                panes = []
+
+            if args.notify:
+                prev_status = check_and_notify(prev_status, panes)
+
+            selected_pane_id = reconcile_selection(selected_pane_id, panes)
+
+            if needs_clear:
+                _tput("clear")
+                needs_clear = False
+
+            buf = render(panes, session, selected_pane_id=selected_pane_id)
+            _tput("home")
+            label = f"agent-ps [{session}]"
+            sys.stdout.write(
+                f"{_DIM}{label}  (every {args.interval}s, "
+                f"↑↓/jk select, Enter focus, Esc cancel, Ctrl-C stop){_RESET}"
+                f"\033[K\n\033[K\n"
+            )
+            sys.stdout.write(buf.replace("\n", "\033[K\n") + "\033[K")
+            sys.stdout.flush()
+            _tput("ed")
+
+            if is_tty:
+                key = wait_for_key(args.interval)
+                if key is None:
+                    continue
+                selected_pane_id, action = handle_key(key, panes, selected_pane_id)
+                if action == "focus" and selected_pane_id is not None:
+                    focus_pane(selected_pane_id)
+            else:
+                try:
+                    time.sleep(args.interval)
+                except KeyboardInterrupt:
+                    break
+    finally:
+        _restore_tty()
+        _tput("cnorm")
+        _tput("clear")
+
+
+def _escape_applescript(s: str) -> str:
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def send_notification(title: str, body: str) -> None:
+    payload = f"{title}: {body}"
+    if os.environ.get("TMUX"):
+        sys.stdout.write(f"\x1bPtmux;\x1b\x1b]9;{payload}\x07\x1b\\")
+        sys.stdout.flush()
+        return
+
+    term = os.environ.get("TERM_PROGRAM", "")
+    if term in ("iTerm.app", "ghostty"):
+        sys.stdout.write(f"\x1b]9;{payload}\x07")
+        sys.stdout.flush()
+        return
+
+    if sys.platform == "darwin":
+        try:
+            subprocess.Popen(
+                ["osascript", "-e",
+                 f'display notification "{_escape_applescript(body)}" with title "{_escape_applescript(title)}"'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            pass
+
+
+def extract_last_message(content: str, max_len: int = 100) -> str:
+    for line in reversed(content.splitlines()):
+        if _NON_CONTENT_BORDER_RE.match(line):
+            continue
+        if line.lstrip().startswith("❯"):
+            continue
+        return _truncate(line, max_len)
+    return ""
+
+
+def check_and_notify(prev_status: dict, panes: list) -> dict:
+    new_prev = {}
+    for p in panes:
+        new_prev[p.pane_id_num] = p.status
+        prev = prev_status.get(p.pane_id_num)
+        if prev != "running":
+            continue
+        if p.status not in ("idle", "waiting_for_input"):
+            continue
+        label = p.label or p.agent.title()
+        body = p.last_message or p.task or f"Pane %{p.pane_id_num}"
+        suffix = "入力待ち" if p.status == "waiting_for_input" else "完了"
+        send_notification(f"{label}: {suffix}", body)
+    return new_prev
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

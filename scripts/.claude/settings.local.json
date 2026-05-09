@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import py_compile; py_compile.compile\\('scripts/agent-ps'\\); print\\('OK'\\)\")",
+      "Bash(bash -n ghc.sh)",
+      "Bash(bash -n scripts/claude-save-log.sh)",
+      "Bash(bash -n scripts/copilot-save-log.sh)"
+    ]
+  }
+}
