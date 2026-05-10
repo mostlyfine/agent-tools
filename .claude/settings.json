@@ -1,0 +1,108 @@
+{
+  "alwaysThinkingEnabled": true,
+  "includeCoAuthoredBy": false,
+  "cleanupPeriodDays": 30,
+  "showTurnDuration": true,
+  "spinnerTipsEnabled": false,
+  "langage": "japanese",
+  "model": "claude-sonnet-4-6",
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Glob",
+      "Grep",
+      "WebFetch",
+      "WebSearch",
+      "Write",
+      "Bash(awk *)",
+      "Bash(cat *)",
+      "Bash(echo *)",
+      "Bash(fd *)",
+      "Bash(find *)",
+      "Bash(gh issue list *)",
+      "Bash(gh issue view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh repo view *)",
+      "Bash(git --no-pager *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)",
+      "Bash(git diff *)",
+      "Bash(git fetch *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git status)",
+      "Bash(grep *)",
+      "Bash(head *)",
+      "Bash(jq *)",
+      "Bash(ls *)",
+      "Bash(npm run build *)",
+      "Bash(npm run dev *)",
+      "Bash(npm run lint *)",
+      "Bash(npm run test *)",
+      "Bash(npm test *)",
+      "Bash(rg *)",
+      "Bash(sed *)",
+      "Bash(sort *)",
+      "Bash(tail *)",
+      "Bash(terraform fmt *)",
+      "Bash(terraform import *)",
+      "Bash(terraform init *)",
+      "Bash(terraform plan *)",
+      "Bash(terraform state list *)",
+      "Bash(terraform state show *)",
+      "Bash(terraform validate *)",
+      "Bash(uniq *)",
+      "Bash(uv add *)",
+      "Bash(uv sync *)",
+      "Bash(wc *)"
+    ],
+    "ask": [
+      "Bash(gh pr create *)",
+      "Bash(git commit *)",
+      "Bash(npm install *)",
+      "Bash(rm *)",
+      "Bash(terraform state mv *)"
+    ],
+    "deny": [
+      "Bash(curl *)",
+      "Bash(git add *)",
+      "Bash(git push *)",
+      "Bash(npm publish *)",
+      "Bash(pnpm publish *)",
+      "Bash(rm -rf *)",
+      "Bash(sudo *)",
+      "Bash(terraform apply *)",
+      "Bash(terraform destroy *)",
+      "Bash(terraform force-unlock *)",
+      "Bash(terraform state rm *)",
+      "Bash(wget *)",
+      "Bash(yarn publish *)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(./secrets/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.ssh/**)"
+    ]
+  },
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "/path/to/scripts/statusline.sh"
+  },
+  "hooks": {
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/path/to/scripts/claude-save-log.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
