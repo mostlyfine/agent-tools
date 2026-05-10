@@ -25,36 +25,15 @@ jq -rs \
   --arg reason "$REASON" \
   '
   (map(select(.type == "session.start")) | first | .data.context.cwd // "") as $cwd |
-  (map(select(.type == "tool.execution_complete")) | INDEX(.data.toolCallId)) as $tools |
 
-  "# Copilot Session: \($date)\n\n- **CWD:** \($cwd)\n- **Reason:** \($reason)\n\n---\n",
+  "# Copilot Session: \($date)\n\n- **Directory:** \($cwd)\n- **Reason:** \($reason)\n\n---\n",
 
   (.[] |
-    if .type == "user.message" then
+    if .type == "user.message" and (.data.source == null or .data.source == "user") then
       "## User\n\n" + .data.content + "\n\n---\n"
 
-    elif .type == "assistant.message" then
-      "## Copilot\n\n" +
-      (if (.data.reasoningText // "") != "" then
-        "> **Thinking:** " + (.data.reasoningText | gsub("\n"; "\n> ")) + "\n\n"
-      else "" end) +
-      (if (.data.content // "") != "" then .data.content + "\n\n" else "" end) +
-      ([ .data.toolRequests[]? |
-          select(.name != "report_intent") |
-          . as $req |
-          ($tools[$req.toolCallId]) as $result |
-          "#### Tool: " + $req.name + "\n\n" +
-          "**Args:** `" + (($req.arguments | tojson) | if length > 500 then .[0:500] + "…" else . end) + "`\n\n" +
-          (if $result != null then
-            (if $result.data.success
-             then "**Result (✓):**\n```\n"
-             else "**Result (✗):**\n```\n" end) +
-            (($result.data.result.content // "") |
-              if length > 500 then .[0:500] + "\n*(truncated)*" else . end) +
-            "\n```\n\n"
-          else "" end)
-       ] | join("")) +
-      "---\n"
+    elif .type == "assistant.message" and (.data.content // "") != "" and (.agentId == null) then
+      "## Copilot\n\n" + .data.content + "\n\n---\n"
 
     else empty
     end
