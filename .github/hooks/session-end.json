@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "~/src/github.com/mostlyfine/agent-tools/scripts/copilot-save-log.sh",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}
