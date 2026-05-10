@@ -1,11 +1,13 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "alwaysThinkingEnabled": true,
   "includeCoAuthoredBy": false,
   "cleanupPeriodDays": 30,
   "showTurnDuration": true,
   "spinnerTipsEnabled": false,
-  "langage": "japanese",
+  "langage": "Japanese",
   "model": "claude-sonnet-4-6",
+  "effortLevel": "xhigh",
   "permissions": {
     "allow": [
       "Edit",
@@ -80,17 +82,39 @@
       "Bash(yarn publish *)",
       "Read(.env)",
       "Read(.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
       "Read(./secrets/**)",
       "Read(~/.aws/**)",
       "Read(~/.ssh/**)"
     ]
+  },
+  "filesystem": {
+    "denyRead": [
+      "~/.aws/credentials",
+      "~/.ssh"
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "superpowers-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "obra/superpowers-marketplace"
+      }
+    },
+    "everything-claude-code": {
+      "source": {
+        "source": "github",
+        "repo": "affaan-m/everything-claude-code"
+      }
+    }
   },
   "env": {
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
   },
   "statusLine": {
     "type": "command",
-    "command": "/path/to/scripts/statusline.sh"
+    "command": "~/src/github.com/mostlyfine/agent-tools/scripts/statusline.sh"
   },
   "hooks": {
     "SessionEnd": [
@@ -99,7 +123,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/path/to/scripts/claude-save-log.sh"
+            "command": "~/src/github.com/mostlyfine/agent-tools/scripts/claude-save-log.sh"
           }
         ]
       }
