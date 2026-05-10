@@ -55,6 +55,7 @@ if ! jq -rs \
     if .type == "user" and .isSidechain == false and (.isMeta // false) == false and (.message.role // "") == "user" then
       (.message.content | if type == "array" and any(.[]; .type == "tool_result") then null
        elif type == "array" then map(select(.type == "text") | .text) | join("\n")
+       elif type == "string" then .
        else null end) as $text |
       if $text == null or $text == "" then empty
       else "## User\n\n" + $text + "\n\n---\n" end
