@@ -1,5 +1,4 @@
-#!/usr/bin/env bash
-# 使い方: source scripts/ghc.sh
+# Usage: source scripts/ghc.sh
 
 alias ghc="copilot \
   --allow-tool='glob' \
@@ -76,7 +75,7 @@ function dev-session() {
   if [ "$PANE_COUNT" -eq 1 ]; then
     tmux split-window -v -t "$TARGET.0" -p 80
     tmux split-window -h -t "$TARGET.1" -p 50
-    tmux send-keys -t "$TARGET.0" "scripts/agent-ps -w -n" Enter
+    tmux send-keys -t "$TARGET.0" "agent-ps -w -n" Enter
     tmux send-keys -t "$TARGET.1" "claude" Enter
     tmux select-pane -t "$TARGET.0"
   fi
