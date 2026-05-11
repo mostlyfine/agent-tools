@@ -66,6 +66,8 @@ if ! jq -rs \
     else empty
     end
   )
-  ' "$TRANSCRIPT_PATH" > "$OUT_FILE" 2>/dev/null; then
+  ' "$TRANSCRIPT_PATH" 2>/dev/null \
+  | perl -pe 's/\x1b\[[0-9;]*[a-zA-Z]//g; s/\x1b[@-Z\\-_]//g' \
+  > "$OUT_FILE"; then
     rm -f "$OUT_FILE"
 fi
