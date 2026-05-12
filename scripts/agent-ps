@@ -33,6 +33,11 @@ def shorten_dir(path: str) -> str:
 
 _TASK_MAX_LEN = 55
 
+_STATUS_RUNNING = "running"
+_STATUS_IDLE = "idle"
+_STATUS_WAITING = "waiting_for_input"
+_STATUS_UNKNOWN = "unknown"
+
 _CLAUDE_IDLE_MARKS = ("✳", "✴", "✺", "✻")
 _CLAUDE_CHOICE_CURSOR_RE = re.compile(r"❯\s+\d+\.")
 _CLAUDE_NAV_HINT_RE = re.compile(
@@ -77,13 +82,13 @@ _COPILOT_NAV_HINT_RE = re.compile(
 
 
 def copilot_title_status(title: str) -> str:
-    return "running" if title.startswith("\U0001f916") else "idle"
+    return _STATUS_RUNNING if title.startswith("\U0001f916") else _STATUS_IDLE
 
 
 def copilot_status(title: str, content: str) -> str:
     lines = content.splitlines()
     if _detect_waiting_for_input(lines, _COPILOT_NAV_HINT_RE):
-        return "waiting_for_input"
+        return _STATUS_WAITING
     return copilot_title_status(title)
 
 
@@ -123,13 +128,13 @@ def is_copilot_pane(cmd: str, pid: str) -> bool:
 
 def claude_title_status(title: str) -> str:
     if not title:
-        return "unknown"
+        return _STATUS_UNKNOWN
     first = title[0]
     if first in _CLAUDE_IDLE_MARKS:
-        return "idle"
+        return _STATUS_IDLE
     if _is_braille(first):
-        return "running"
-    return "unknown"
+        return _STATUS_RUNNING
+    return _STATUS_UNKNOWN
 
 
 def _content_has_braille(content: str) -> bool:
@@ -155,12 +160,12 @@ def _detect_waiting_for_input(lines: list, pattern: re.Pattern) -> bool:
 
 def claude_status(title: str, content: str) -> str:
     if _CLAUDE_CHOICE_CURSOR_RE.search(content):
-        return "waiting_for_input"
+        return _STATUS_WAITING
     lines = content.splitlines()
     if _detect_waiting_for_input(lines, _CLAUDE_NAV_HINT_RE):
-        return "waiting_for_input"
+        return _STATUS_WAITING
     if _content_has_braille(content):
-        return "running"
+        return _STATUS_RUNNING
     return claude_title_status(title)
 
 
@@ -390,9 +395,10 @@ _RESET = "\033[0m"
 _REVERSE = "\033[7m"
 
 _STATUS_GLYPH = {
-    "running": ("●", _GREEN),
-    "idle": ("○", _YELLOW),
-    "waiting_for_input": (">", _YELLOW),
+    _STATUS_RUNNING: ("●", _GREEN),
+    _STATUS_IDLE: ("○", _YELLOW),
+    _STATUS_WAITING: (">", _YELLOW),
+    _STATUS_UNKNOWN: ("?", _DIM),
 }
 
 
@@ -561,37 +567,50 @@ def _escape_applescript(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
+_NOTIF_TITLE = "agent-ps"
+_IN_TMUX = "TMUX" in os.environ
+_TERM_PROGRAM = os.environ.get("TERM_PROGRAM", "")
+
+
+def _notify_applescript(message: str) -> None:
+    try:
+        subprocess.Popen(
+            ["osascript", "-e",
+             f'display notification "{_escape_applescript(message)}" with title "{_NOTIF_TITLE}"'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        pass
+
+
 def send_notification(message: str) -> None:
-    if os.environ.get("TMUX"):
+    if _IN_TMUX and sys.platform != "darwin":
         sys.stdout.write(f"\x1bPtmux;\x1b\x1b]9;{message}\x07\x1b\\")
         sys.stdout.flush()
         return
 
-    term = os.environ.get("TERM_PROGRAM", "")
-    if term in ("iTerm.app", "ghostty"):
+    if not _IN_TMUX and _TERM_PROGRAM in ("iTerm.app", "ghostty"):
         sys.stdout.write(f"\x1b]9;{message}\x07")
         sys.stdout.flush()
         return
 
     if sys.platform == "darwin":
-        try:
-            subprocess.Popen(
-                ["osascript", "-e",
-                 f'display notification "{_escape_applescript(message)}" with title "{_escape_applescript("agent-ps")}"'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-        except OSError:
-            pass
+        _notify_applescript(message)
 
 
 def check_and_notify(prev_status: dict, panes: list) -> dict:
     new_prev = {}
     for p in panes:
-        new_prev[p.pane_id_num] = p.status
         prev = prev_status.get(p.pane_id_num)
-        if prev != "running":
+        # Preserve the last known status across brief "unknown" transitions so the
+        # idle notification isn't lost when the spinner disappears before the title updates.
+        new_prev[p.pane_id_num] = (
+            p.status if p.status != _STATUS_UNKNOWN
+            else (prev if prev is not None else _STATUS_UNKNOWN)
+        )
+        if prev != _STATUS_RUNNING:
             continue
-        if p.status not in ("idle", "waiting_for_input"):
+        if p.status not in (_STATUS_IDLE, _STATUS_WAITING):
             continue
         agent = (p.label or p.agent).lower()
         task = p.task or f"Pane %{p.pane_id_num}"
