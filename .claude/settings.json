@@ -1,13 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "alwaysThinkingEnabled": true,
-  "includeCoAuthoredBy": false,
   "cleanupPeriodDays": 30,
-  "showTurnDuration": true,
-  "spinnerTipsEnabled": false,
-  "langage": "Japanese",
-  "model": "claude-sonnet-4-6",
-  "effortLevel": "xhigh",
+  "env": {
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
+  },
+  "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
       "Edit",
@@ -59,19 +56,13 @@
       "Bash(uv sync *)",
       "Bash(wc *)"
     ],
-    "ask": [
-      "Bash(gh pr create *)",
-      "Bash(git commit *)",
-      "Bash(npm install *)",
-      "Bash(rm *)",
-      "Bash(terraform state mv *)"
-    ],
     "deny": [
       "Bash(curl *)",
-      "Bash(git add *)",
-      "Bash(git push *)",
       "Bash(npm publish *)",
       "Bash(pnpm publish *)",
+      "Bash(git rebase *)",
+      "Bash(git reset)",
+      "Bash(git reset *)",
       "Bash(rm -rf *)",
       "Bash(sudo *)",
       "Bash(terraform apply *)",
@@ -87,35 +78,18 @@
       "Read(./secrets/**)",
       "Read(~/.aws/**)",
       "Read(~/.ssh/**)"
+    ],
+    "ask": [
+      "Bash(gh pr create *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(npm install *)",
+      "Bash(rm *)",
+      "Bash(terraform state mv *)"
     ]
   },
-  "filesystem": {
-    "denyRead": [
-      "~/.aws/credentials",
-      "~/.ssh"
-    ]
-  },
-  "extraKnownMarketplaces": {
-    "superpowers-marketplace": {
-      "source": {
-        "source": "github",
-        "repo": "obra/superpowers-marketplace"
-      }
-    },
-    "everything-claude-code": {
-      "source": {
-        "source": "github",
-        "repo": "affaan-m/everything-claude-code"
-      }
-    }
-  },
-  "env": {
-    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
-  },
-  "statusLine": {
-    "type": "command",
-    "command": "~/src/github.com/mostlyfine/agent-tools/scripts/statusline.sh"
-  },
+  "model": "claude-sonnet-4-6",
   "hooks": {
     "SessionEnd": [
       {
@@ -127,6 +101,43 @@
           }
         ]
       }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/src/github.com/mostlyfine/agent-tools/scripts/statusline.sh"
+  },
+  "enabledPlugins": {
+    "security-guidance@claude-plugins-official": false,
+    "superpowers@claude-plugins-official": false,
+    "feature-dev@claude-plugins-official": false,
+    "code-review@claude-plugins-official": false,
+    "commit-commands@claude-plugins-official": false
+  },
+  "extraKnownMarketplaces": {
+    "superpowers-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "obra/superpowers-marketplace"
+      },
+      "autoUpdate": true
+    },
+    "everything-claude-code": {
+      "source": {
+        "source": "github",
+        "repo": "affaan-m/everything-claude-code"
+      }
+    }
+  },
+  "spinnerTipsEnabled": false,
+  "alwaysThinkingEnabled": true,
+  "effortLevel": "xhigh",
+  "showTurnDuration": true,
+  "language": "Japanese",
+  "filesystem": {
+    "denyRead": [
+      "~/.aws/credentials",
+      "~/.ssh"
     ]
   }
 }
