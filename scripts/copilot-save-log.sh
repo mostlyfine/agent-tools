@@ -19,7 +19,7 @@ if [ ! -f "$EVENTS_FILE" ]; then
   exit 0
 fi
 
-COMBINED=$(date -r "$UNIX_SECS" "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S" 2>/dev/null || date "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S")
+COMBINED=$(TZ=Asia/Tokyo date -r "$UNIX_SECS" "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S" 2>/dev/null || TZ=Asia/Tokyo date "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S")
 IFS='|' read -r DATE_DIR TIME_STR DATE_DISPLAY <<<"$COMBINED"
 
 OUT_FILE="${DEST_DIR}/${DATE_DIR}/${TIME_STR}_${SESSION_ID:0:8}.md"

@@ -16,9 +16,10 @@ fi
 TIMESTAMP=$(jq -rn 'first(inputs | select(.type == "user" and .isSidechain == false) | .timestamp // "") // ""' "$TRANSCRIPT_PATH")
 
 if [ -n "$TIMESTAMP" ]; then
-    COMBINED=$(date -jf "%Y-%m-%dT%H:%M:%S" "${TIMESTAMP%%.*}" "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S" 2>/dev/null || date "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S")
+    EPOCH=$(TZ=UTC date -jf "%Y-%m-%dT%H:%M:%S" "${TIMESTAMP%%.*}" "+%s" 2>/dev/null)
+    COMBINED=$(TZ=Asia/Tokyo date -r "$EPOCH" "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S" 2>/dev/null || TZ=Asia/Tokyo date "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S")
 else
-    COMBINED=$(date "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S")
+    COMBINED=$(TZ=Asia/Tokyo date "+%Y%m%d|%H%M%S|%Y-%m-%d %H:%M:%S")
 fi
 IFS='|' read -r DATE_DIR TIME_STR DATE_DISPLAY <<<"$COMBINED"
 
