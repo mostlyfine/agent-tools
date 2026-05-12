@@ -608,7 +608,7 @@ def check_and_notify(prev_status: dict, panes: list) -> dict:
             continue
         if p.status not in (_STATUS_IDLE, _STATUS_WAITING):
             continue
-        agent = (p.label or p.agent).lower()
+        agent = p.label or p.agent
         task = p.task or f"Pane %{p.pane_id_num}"
         send_notification(f"[{agent}] {task} {p.status}")
     return new_prev
