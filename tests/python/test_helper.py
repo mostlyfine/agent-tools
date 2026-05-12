@@ -27,7 +27,6 @@ _FUNCTIONS = {
     "is_claude_pane": mod.is_claude_pane,
     "is_copilot_pane": mod.is_copilot_pane,
     "shorten_dir": mod.shorten_dir,
-    "extract_last_message": mod.extract_last_message,
     "claude_title_status": mod.claude_title_status,
     "copilot_title_status": mod.copilot_title_status,
 }
