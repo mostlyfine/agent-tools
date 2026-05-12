@@ -584,17 +584,13 @@ def _notify_applescript(message: str) -> None:
 
 
 def send_notification(message: str) -> None:
-    if _IN_TMUX and sys.platform != "darwin":
+    if _IN_TMUX:
         sys.stdout.write(f"\x1bPtmux;\x1b\x1b]9;{message}\x07\x1b\\")
         sys.stdout.flush()
-        return
-
-    if not _IN_TMUX and _TERM_PROGRAM in ("iTerm.app", "ghostty"):
+    elif _TERM_PROGRAM in ("iTerm.app", "ghostty"):
         sys.stdout.write(f"\x1b]9;{message}\x07")
         sys.stdout.flush()
-        return
-
-    if sys.platform == "darwin":
+    elif sys.platform == "darwin":
         _notify_applescript(message)
 
 
