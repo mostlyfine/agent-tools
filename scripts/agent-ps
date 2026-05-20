@@ -77,7 +77,8 @@ def copilot_task(title: str) -> str:
 
 
 _COPILOT_NAV_HINT_RE = re.compile(
-    r"↑↓ to (navigate|select)|Enter to (select|confirm|submit)"
+    r"↑/?↓ to (navigate|select)|(?:Press )?Enter to (select|confirm|submit|continue)",
+    re.IGNORECASE,
 )
 
 

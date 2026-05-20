@@ -76,3 +76,10 @@ load "helpers/common"
     [ "$status" -eq 0 ]
     [ "$output" != "waiting_for_input" ]
 }
+
+@test "copilot_status: Setting workspace の選択プロンプトなら waiting_for_input" {
+    local content=$'Do you want to run this command?\n\n❯ 1. Yes\n  2. No\n\n↑/↓ to navigate · enter to select · esc to cancel\n╰─────────────────────────╯'
+    run call_python copilot_status "🤖 Setting workspace" "$content"
+    [ "$status" -eq 0 ]
+    [ "$output" = "waiting_for_input" ]
+}
