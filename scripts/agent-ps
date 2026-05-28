@@ -217,6 +217,9 @@ def handle_key(key, panes, selected):
             return None, None
         return selected, "focus"
 
+    if key == "q":
+        return None, "quit"
+
     if key == "escape":
         return None, None
 
@@ -244,6 +247,7 @@ _KEY_MAP = {
     b"\n": "enter",
     b"j": "j",
     b"k": "k",
+    b"q": "q",
     b"\x1b": "escape",
     b"\x1b[A": "up",
     b"\x1b[B": "down",
@@ -539,7 +543,7 @@ def watch_loop(args, session):
             label = f"agent-ps [{session}]"
             sys.stdout.write(
                 f"{_DIM}{label}  (every {args.interval}s, "
-                f"↑↓/jk select, Enter focus, Esc cancel, Ctrl-C stop){_RESET}"
+                f"↑↓/jk select, Enter focus, Esc cancel, q quit, Ctrl-C stop){_RESET}"
                 f"\033[K\n\033[K\n"
             )
             sys.stdout.write(buf.replace("\n", "\033[K\n") + "\033[K")
@@ -551,6 +555,8 @@ def watch_loop(args, session):
                 if key is None:
                     continue
                 selected_pane_id, action = handle_key(key, panes, selected_pane_id)
+                if action == "quit":
+                    break
                 if action == "focus" and selected_pane_id is not None:
                     focus_pane(selected_pane_id)
             else:
