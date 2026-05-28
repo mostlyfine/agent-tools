@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # sessionEnd hook: save formatted conversation log to COPILOT_LOG_DIR
 
+# Read stdin synchronously (hook requires immediate stdin consumption)
+INPUT=$(cat)
+
+# Run the actual processing asynchronously to avoid blocking session shutdown
+{
 set -euo pipefail
 
-INPUT=$(cat)
 IFS=$'\t' read -r SESSION_ID TIMESTAMP < <(jq -r '[.sessionId // "", (.timestamp // 0 | tostring)] | @tsv' <<<"$INPUT")
 UNIX_SECS=$((TIMESTAMP / 1000))
 
@@ -59,3 +63,6 @@ if ! jq -rs \
   > "$OUT_FILE"; then
     rm -f "$OUT_FILE"
 fi
+
+} &>/dev/null &
+disown

@@ -13,6 +13,9 @@ if [ -z "$SESSION_ID" ] || [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH
   exit 0
 fi
 
+# Run the heavy processing in the background and exit immediately
+{
+
 TIMESTAMP=$(jq -rn 'first(inputs | select(.type == "user" and .isSidechain == false) | .timestamp // "") // ""' "$TRANSCRIPT_PATH")
 
 if [ -n "$TIMESTAMP" ]; then
@@ -72,3 +75,7 @@ if ! jq -rs \
   > "$OUT_FILE"; then
     rm -f "$OUT_FILE"
 fi
+
+} &
+disown
+
