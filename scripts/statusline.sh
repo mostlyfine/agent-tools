@@ -49,14 +49,22 @@ if [ -f "$stats_file" ]; then
 fi
 
 # --- Usage window reset time (first user message + 5h) ---
+# /clear でトランスクリプトが切り替わっても正しいリセット時刻を表示するため
+# プロジェクトディレクトリ内の全JSOLファイルから5時間以内の最古メッセージを使う
 reset_str=""
 if [ -f "$transcript" ]; then
-  first_ts=$(jq -r 'select(.type == "user" and ((.isSidechain // false) == false)) | .timestamp // ""' "$transcript" 2>/dev/null | grep -v '^$' | head -1)
+  now_epoch=$(date "+%s")
+  window_start_epoch=$(( now_epoch - 18000 ))
+  window_start=$(TZ=UTC date -r "$window_start_epoch" "+%Y-%m-%dT%H:%M:%S" 2>/dev/null)
+  project_dir=$(dirname "$transcript")
+  first_ts=$(find "$project_dir" -maxdepth 1 -name "*.jsonl" -print0 2>/dev/null | \
+    xargs -0 jq -r --arg from "$window_start" \
+    'select(.type == "user" and ((.isSidechain // false) == false) and ((.timestamp // "") >= $from)) | .timestamp // ""' \
+    2>/dev/null | grep -v '^$' | sort | head -1)
   if [ -n "$first_ts" ]; then
     first_epoch=$(TZ=UTC date -jf "%Y-%m-%dT%H:%M:%S" "${first_ts%%.*}" "+%s" 2>/dev/null)
     if [ -n "$first_epoch" ]; then
       reset_epoch=$(( first_epoch + 18000 ))
-      now_epoch=$(date "+%s")
       if [ "$reset_epoch" -gt "$now_epoch" ]; then
         reset_str=$(TZ=Asia/Tokyo date -r "$reset_epoch" "+%H:%M" 2>/dev/null)
       fi
