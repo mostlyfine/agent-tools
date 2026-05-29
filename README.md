@@ -233,10 +233,52 @@ gh skill update --all
 | context7 | ライブラリドキュメントの参照 |
 | filesystem | ローカルファイルシステムへのアクセス |
 
-**セットアップ:**
+### Claude Code へのインストール
 
 ```bash
-cp /path/to/.github/.mcp.json ~/.copilot/.mcp.json
+claude mcp add fetch -- uvx mcp-server-fetch
+claude mcp add context7 -- npx -y @upstash/context7-mcp
+claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem . ~/src/
+```
+
+**スコープを指定する場合:**
+
+```bash
+# ユーザーレベル（全プロジェクトで使用）
+claude mcp add -s user fetch -- uvx mcp-server-fetch
+claude mcp add -s user context7 -- npx -y @upstash/context7-mcp
+claude mcp add -s user filesystem -- npx -y @modelcontextprotocol/server-filesystem . ~/src/
+
+# プロジェクトレベル（.mcp.json に保存）
+claude mcp add -s project fetch -- uvx mcp-server-fetch
+claude mcp add -s project context7 -- npx -y @upstash/context7-mcp
+claude mcp add -s project filesystem -- npx -y @modelcontextprotocol/server-filesystem . ~/src/
+```
+
+**インストール確認:**
+
+```bash
+claude mcp list
+```
+
+### Copilot CLI へのインストール
+
+```bash
+gh copilot -- mcp add fetch -- uvx mcp-server-fetch
+gh copilot -- mcp add context7 -- npx -y @upstash/context7-mcp
+gh copilot -- mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem . ~/src/
+```
+
+**インストール確認:**
+
+```bash
+gh copilot -- mcp list
+```
+
+**または .mcp.json をコピー（ワークスペース設定として使用する場合）:**
+
+```bash
+cp /path/to/.github/.mcp.json .mcp.json
 ```
 
 ## 必要な環境
