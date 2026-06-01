@@ -22,13 +22,16 @@ from typing import NamedTuple
 
 
 def shorten_dir(path: str) -> str:
+    """Return only the final directory name (basename) for display."""
     try:
-        path = "~/" + str(Path(path).relative_to(Path.home()))
-    except ValueError:
-        pass
-    if len(path) > 30:
-        path = "..." + path[-27:]
-    return path
+        p = Path(path).expanduser()
+        name = p.name
+        if name:
+            return name
+        # For root (e.g. '/') p.name is empty — return the path itself
+        return str(p)
+    except Exception:
+        return path
 
 
 _TASK_MAX_LEN = 55
