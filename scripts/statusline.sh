@@ -21,61 +21,118 @@ GREEN=$'\033[32m'
 YELLOW=$'\033[33m'
 RED=$'\033[31m'
 MAGENTA=$'\033[35m'
+GRAY=$'\033[90m'
+WHITE=$'\033[97m'
 
 # --- Context window usage ---
 ctx_tokens=0
 ctx_pct=0
-ctx_limit=200000
+ctx_remaining=$(echo "$input" | jq -r '.context_window.remaining_percentage // empty')
+if [ -n "$ctx_remaining" ]; then
+  ctx_pct="$ctx_remaining"
+fi
 if [ -f "$transcript" ]; then
   ctx_tokens=$(jq -r 'select(.message.usage) | (.message.usage.input_tokens // 0) + (.message.usage.cache_read_input_tokens // 0) + (.message.usage.cache_creation_input_tokens // 0)' "$transcript" 2>/dev/null | tail -1)
   if [ -z "$ctx_tokens" ] || [ "$ctx_tokens" = "null" ]; then
     ctx_tokens=0
   fi
-  ctx_pct=$(awk -v t="$ctx_tokens" -v l="$ctx_limit" 'BEGIN { printf "%.0f", t * 100 / l }')
 fi
 
-# --- Weekly token usage (from ~/.claude/stats-cache.json) ---
-week_tokens=0
-stats_file="$HOME/.claude/stats-cache.json"
-if [ -f "$stats_file" ]; then
-  dow=$(TZ=Asia/Tokyo date +%u)  # 1=Mon ... 7=Sun
-  week_start=$(TZ=Asia/Tokyo date -v-"$(( dow - 1 ))"d +%Y-%m-%d 2>/dev/null)
-  if [ -n "$week_start" ]; then
-    week_tokens=$(jq --arg from "$week_start" -r '
-      [.dailyModelTokens[] | select(.date >= $from) | .tokensByModel | to_entries[] | .value] | add // 0
-    ' "$stats_file" 2>/dev/null)
-    [ -z "$week_tokens" ] || [ "$week_tokens" = "null" ] && week_tokens=0
+# --- Usage window reset time (Anthropic OAuth Usage API) ---
+_get_claude_token() {
+  local raw
+  raw=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) || return 1
+  if echo "$raw" | grep -qE '^[0-9a-f]+$'; then
+    raw=$(echo "$raw" | xxd -r -p 2>/dev/null) || return 1
+  fi
+  echo "$raw" | jq -r '.claudeAiOauth.accessToken // .accessToken // empty' 2>/dev/null
+}
+
+_iso8601_to_epoch() {
+  local normalized
+  normalized=$(echo "$1" | sed 's/\.[0-9]*//' | sed 's/+00:00$/+0000/')
+  date -jf "%Y-%m-%dT%H:%M:%S%z" "$normalized" "+%s" 2>/dev/null
+}
+
+_get_usage_resets_at() {
+  local cache="/tmp/oauth-usage-cache.json"
+  local now_epoch
+  now_epoch=$(date "+%s")
+  if [ -f "$cache" ]; then
+    local cached_time
+    cached_time=$(jq -r '.cached_at // 0' "$cache" 2>/dev/null)
+    if [ $(( now_epoch - cached_time )) -lt 60 ]; then
+      jq -r '.resets_at // empty' "$cache" 2>/dev/null
+      return
+    fi
+  fi
+  local token
+  token=$(_get_claude_token) || return 1
+  local response
+  response=$(curl -s --max-time 3 \
+    -H "Authorization: Bearer $token" \
+    -H "anthropic-beta: oauth-2025-04-20" \
+    "https://api.anthropic.com/api/oauth/usage" 2>/dev/null) || return 1
+  local resets_at
+  resets_at=$(echo "$response" | jq -r '.five_hour.resets_at // empty' 2>/dev/null)
+  [ -z "$resets_at" ] && return 1
+  local utilization
+  utilization=$(echo "$response" | jq -r '(.seven_day.utilization // .five_hour.utilization // "null")' 2>/dev/null)
+  local five_hour_util
+  five_hour_util=$(echo "$response" | jq -r '(.five_hour.utilization // "null")' 2>/dev/null)
+  jq -n --arg r "$resets_at" --arg t "$now_epoch" --arg u "$utilization" --arg f "$five_hour_util" \
+    '{
+      "resets_at": $r,
+      "cached_at": ($t | tonumber),
+      "utilization": ($u | if . == "null" then null else tonumber end),
+      "five_hour_utilization": ($f | if . == "null" then null else tonumber end)
+    }' > "$cache" 2>/dev/null
+  echo "$resets_at"
+}
+
+reset_str=""
+remaining_pct=""
+reset_epoch=""
+resets_at=$(_get_usage_resets_at 2>/dev/null)
+if [ -n "$resets_at" ]; then
+  reset_epoch=$(_iso8601_to_epoch "$resets_at")
+  if [ -n "$reset_epoch" ]; then
+    now_epoch=$(date "+%s")
+    if [ "$reset_epoch" -gt "$now_epoch" ]; then
+      reset_str=$(TZ=Asia/Tokyo date -r "$reset_epoch" "+%H:%M" 2>/dev/null)
+    fi
   fi
 fi
-
-# --- Usage window reset time (first user message + 5h) ---
-# /clear でトランスクリプトが切り替わっても正しいリセット時刻を表示するため
-# プロジェクトディレクトリ内の全JSOLファイルから5時間以内の最古メッセージを使う
-reset_str=""
-if [ -f "$transcript" ]; then
-  now_epoch=$(date "+%s")
-  window_start_epoch=$(( now_epoch - 18000 ))
-  window_start=$(TZ=UTC date -r "$window_start_epoch" "+%Y-%m-%dT%H:%M:%S" 2>/dev/null)
-  project_dir=$(dirname "$transcript")
-  first_ts=$(find "$project_dir" -maxdepth 1 -name "*.jsonl" -print0 2>/dev/null | \
-    xargs -0 jq -r --arg from "$window_start" \
-    'select(.type == "user" and ((.isSidechain // false) == false) and ((.timestamp // "") >= $from)) | .timestamp // ""' \
-    2>/dev/null | grep -v '^$' | sort | head -1)
-  if [ -n "$first_ts" ]; then
-    first_epoch=$(TZ=UTC date -jf "%Y-%m-%dT%H:%M:%S" "${first_ts%%.*}" "+%s" 2>/dev/null)
-    if [ -n "$first_epoch" ]; then
-      reset_epoch=$(( first_epoch + 18000 ))
-      if [ "$reset_epoch" -gt "$now_epoch" ]; then
-        reset_str=$(TZ=Asia/Tokyo date -r "$reset_epoch" "+%H:%M" 2>/dev/null)
-      fi
+cache_file="/tmp/oauth-usage-cache.json"
+five_hour_remaining=""
+if [ -f "$cache_file" ]; then
+  utilization_raw=$(jq -r '.utilization // empty' "$cache_file" 2>/dev/null)
+  if [ -n "$utilization_raw" ] && [ "$utilization_raw" != "null" ]; then
+    remaining_pct=$(awk -v u="$utilization_raw" 'BEGIN { printf "%.0f", 100 - u }')
+  fi
+  fh_util=$(jq -r '.five_hour_utilization // empty' "$cache_file" 2>/dev/null)
+  if [ -n "$fh_util" ] && [ "$fh_util" != "null" ]; then
+    five_hour_remaining=$(awk -v u="$fh_util" 'BEGIN { printf "%.1f", 100 - u }')
+  fi
+fi
+five_hour_time_left=""
+if [ -n "$reset_epoch" ]; then
+  secs_left=$(( reset_epoch - $(date "+%s") ))
+  if [ "$secs_left" -gt 0 ]; then
+    h=$(( secs_left / 3600 ))
+    m=$(( (secs_left % 3600) / 60 ))
+    if [ "$h" -gt 0 ]; then
+      five_hour_time_left="${h}h ${m}m left"
+    else
+      five_hour_time_left="${m}m left"
     fi
   fi
 fi
 
-# Color by usage
-if [ "$ctx_pct" -lt 50 ]; then
+# Color by remaining
+if [ "$ctx_pct" -gt 50 ]; then
   ctx_color="$GREEN"
-elif [ "$ctx_pct" -lt 80 ]; then
+elif [ "$ctx_pct" -gt 20 ]; then
   ctx_color="$YELLOW"
 else
   ctx_color="$RED"
@@ -96,22 +153,35 @@ ctx_tokens_fmt=$(awk -v t="$ctx_tokens" 'BEGIN {
   else printf "%d", t;
 }')
 cost_fmt=$(awk -v c="$cost_usd" 'BEGIN { printf "%.4f", c }')
-week_tokens_fmt=$(awk -v t="$week_tokens" 'BEGIN {
-  if (t >= 1000000) printf "%.1fM", t/1000000;
-  else if (t >= 1000) printf "%.1fk", t/1000;
-  else printf "%d", t;
-}')
 
 # --- Build output ---
 sep="${DIM} | ${RESET}"
 output="${CYAN}●${RESET} ${BOLD}${model}${RESET}"
 [ -n "$git_branch" ] && output="${output}${sep}${git_branch}"
-output="${output}${sep}${ctx_color}${ctx_pct}% (${ctx_tokens_fmt})${RESET}"
-output="${output}${sep}${GREEN}\$${cost_fmt}${RESET}"
 if [ "$lines_added" -gt 0 ] || [ "$lines_removed" -gt 0 ]; then
   output="${output}${sep}${GREEN}+${lines_added}${RESET}/${RED}-${lines_removed}${RESET}"
 fi
-output="${output}${sep}${CYAN}📊 ${week_tokens_fmt}${RESET}"
-[ -n "$reset_str" ] && output="${output}${sep}${YELLOW}⏱ ${reset_str}${RESET}"
+output="${output}${sep}${WHITE}\$${cost_fmt}${RESET}"
+output="${output}${sep}${ctx_color}🖼️ ${ctx_pct}% (${ctx_tokens_fmt})${RESET}"
+if [ -n "$five_hour_remaining" ]; then
+  fh_int=$(printf "%.0f" "$five_hour_remaining")
+  if   [ "$fh_int" -gt 60 ]; then fh_color="$GREEN"
+  elif [ "$fh_int" -gt 40 ]; then fh_color="$YELLOW"
+  elif [ "$fh_int" -gt 20 ]; then fh_color="$YELLOW"
+  else fh_color="$RED"; fi
+  fh_str="⏱ ${five_hour_remaining}%"
+  [ -n "$five_hour_time_left" ] && fh_str="${fh_str} (${five_hour_time_left})"
+  output="${output}${sep}${fh_color}${fh_str}${RESET}"
+fi
+if [ -n "$remaining_pct" ]; then
+  if [ "$remaining_pct" -ge 80 ]; then
+    rate_color="$GREEN"
+  elif [ "$remaining_pct" -ge 40 ]; then
+    rate_color="$YELLOW"
+  else
+    rate_color="$RED"
+  fi
+  output="${output}${sep}${rate_color}📊 ${remaining_pct}%${RESET}"
+fi
 
 printf "%b" "$output"
