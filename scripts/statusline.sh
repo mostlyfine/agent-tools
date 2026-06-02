@@ -143,7 +143,7 @@ git_branch=""
 if [ -n "$cwd" ] && [ -d "$cwd" ]; then
   branch=$(git -C "$cwd" branch --show-current 2>/dev/null)
   if [ -n "$branch" ]; then
-    git_branch="${MAGENTA} ${branch}${RESET}"
+    git_branch="${MAGENTA}${branch}${RESET}"
   fi
 fi
 
@@ -156,13 +156,13 @@ cost_fmt=$(awk -v c="$cost_usd" 'BEGIN { printf "%.4f", c }')
 
 # --- Build output ---
 sep="${DIM} | ${RESET}"
-output="${CYAN}●${RESET} ${BOLD}${model}${RESET}"
+output="${CYAN}󰚩${RESET}  ${BOLD}${model}${RESET}"
 [ -n "$git_branch" ] && output="${output}${sep}${git_branch}"
 if [ "$lines_added" -gt 0 ] || [ "$lines_removed" -gt 0 ]; then
   output="${output}${sep}${GREEN}+${lines_added}${RESET}/${RED}-${lines_removed}${RESET}"
 fi
-output="${output}${sep}${WHITE}\$${cost_fmt}${RESET}"
-output="${output}${sep}${ctx_color}🖼️ ${ctx_pct}% (${ctx_tokens_fmt})${RESET}"
+output="${output}${sep}${BOLD}\$${cost_fmt}${RESET}"
+output="${output}${sep}${ctx_color}  ${ctx_pct}% (${ctx_tokens_fmt})${RESET}"
 if [ -n "$five_hour_remaining" ]; then
   fh_int=$(printf "%.0f" "$five_hour_remaining")
   if   [ "$fh_int" -gt 60 ]; then fh_color="$GREEN"
@@ -181,7 +181,7 @@ if [ -n "$remaining_pct" ]; then
   else
     rate_color="$RED"
   fi
-  output="${output}${sep}${rate_color}📊 ${remaining_pct}%${RESET}"
+  output="${output}${sep}${rate_color} ${remaining_pct}%${RESET}"
 fi
 
 printf "%b" "$output"
