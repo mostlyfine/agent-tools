@@ -129,15 +129,18 @@
       }
     }
   },
+  "language": "Japanese",
   "spinnerTipsEnabled": false,
   "alwaysThinkingEnabled": true,
   "effortLevel": "xhigh",
+  "skipWorkflowUsageWarning": true,
+  "autoCompactEnabled": true,
   "showTurnDuration": true,
-  "language": "Japanese",
   "filesystem": {
     "denyRead": [
       "~/.aws/credentials",
       "~/.ssh"
     ]
-  }
+  },
+  "agentPushNotifEnabled": true
 }
