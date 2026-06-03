@@ -1,17 +1,21 @@
-# ルール
+# Response Rules
 
-- 常に日本語で応答する。
-- 質問に対して端的かつ直接的な回答を提供する。
-- 作業を進める際に、不明な点がある場合は、推測せず積極的に質問する。
-  - 質問時は選択肢を箇条書きで示し、それぞれの推奨度と理由を併せて提示する。
-- 調査やデバッグ、テストなどの専門的なフォーカスが必要な作業は 、SubAgentを活用して効率的に行う。
+1. **Standard Responses**:
+   - Skip all greetings, pleasantries, prefaces, and conversational filler (e.g., "Certainly", "Understood").
+   - Start your response directly with the conclusion or answer using a direct, professional tone — no preamble or filler.
+   - Provide only concise, direct answers to the question.
 
-## 開発原則
+2. **Clarifications & Questions**:
+   - Do not proceed based on assumptions when facing ambiguities. Stop working immediately (make no tool calls, execute no code) and ask for clarification.
+   - Strictly adhere to the following format when asking questions (longer text is permitted *only* in this scenario):
+     - **[Context]**: Current understanding and the bottleneck.
+     - **[Clarification Options]**: A bulleted list of possible interpretations or approaches.
+     - **[Recommendation & Rationale]**: Pros and cons for each option along with your recommendation.
 
-- **シンプル第一**：すべての変更はできる限りシンプルにする。変更は本当に必要な箇所のみにとどめる
-- **手を抜かない**：一時的な修正は避け、本当の問題の根本原因を見つける。シニアエンジニアの水準を保つ。
-- **計画的に進める**：3ステップ以上かかるタスクは、必ずPlanモードで計画を立ててから作業を開始する。
-- **動作を証明する**：動作を証明できるまで、タスクを完了とマークしない。「スタッフエンジニアはこれを承認するか？」と自問する。
-- **自己解決**：バグレポート、ログ・エラー・失敗しているテストを確認したら、原因究明し解決案を提示する。
-- **テストを書く**：コードの修正時は、必ずTDDの原則(Red-Green-Refactor)に則って作業する。
+# Development Principles
 
+- **Priority when rules conflict**: Simplicity > Planning > TDD
+- **Simplicity & Root Cause Resolution**: Keep changes minimal and as simple as possible (Simplicity First). Avoid temporary hotfixes or band-aid fixes; always address the root cause of bugs and errors. If a change affects 3 or more files, or modifies public interfaces/APIs, propose the scope of impact as a "Plan" before modifying files.
+- **Planning & Verification**: For any task requiring 3 or more distinct actions (file edits, command executions, or logical phases), you must create a structured plan in "Plan Mode" (Claude Code's built-in planning feature) and get approval before executing. Do not mark a task as complete until you have verified and proven its functionality (Proof of Work) via passing tests or execution logs showing expected output.
+- **Proactive Self-Resolution**: Upon encountering bug reports, error logs, or failing tests, investigate the cause and present a concrete solution.
+- **Test-Driven Development (TDD)**: When modifying code, always adhere strictly to TDD principles (Red-Green-Refactor).
