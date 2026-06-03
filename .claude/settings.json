@@ -1,10 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "cleanupPeriodDays": 30,
   "env": {
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
   },
-  "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
       "Edit",
@@ -108,39 +106,29 @@
     "command": "~/src/github.com/mostlyfine/agent-tools/scripts/statusline.sh"
   },
   "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": false,
-    "superpowers@claude-plugins-official": false,
     "feature-dev@claude-plugins-official": false,
     "code-review@claude-plugins-official": false,
-    "commit-commands@claude-plugins-official": false
+    "andrej-karpathy-skills@multica-ai/andrej-karpathy-skills": true
   },
   "extraKnownMarketplaces": {
-    "superpowers-marketplace": {
+    "multica-ai/andrej-karpathy-skills": {
       "source": {
         "source": "github",
-        "repo": "obra/superpowers-marketplace"
-      },
-      "autoUpdate": true
-    },
-    "everything-claude-code": {
-      "source": {
-        "source": "github",
-        "repo": "affaan-m/everything-claude-code"
+        "repo": "multica-ai/andrej-karpathy-skills"
       }
     }
   },
   "language": "Japanese",
   "spinnerTipsEnabled": false,
   "alwaysThinkingEnabled": true,
-  "effortLevel": "xhigh",
-  "skipWorkflowUsageWarning": true,
+  "effortLevel": "high",
   "autoCompactEnabled": true,
-  "showTurnDuration": true,
-  "filesystem": {
-    "denyRead": [
-      "~/.aws/credentials",
-      "~/.ssh"
-    ]
-  },
-  "agentPushNotifEnabled": true
+  "includeCoAuthoredBy": false,
+  "cleanupPeriodDays": 30,
+  "showTurnDuration": true
 }
