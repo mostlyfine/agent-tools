@@ -1,5 +1,5 @@
 ---
-name: contextual-commit
+name: Commit
 description: "Commit staged/unstaged changes in meaningful units using conventional commit format (English)"
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git apply:*), Bash(git commit:*), Bash(git log:*), AskUserQuestion
 ---
@@ -75,11 +75,31 @@ Rules:
 - `scope`: the affected module/area (omit if unclear)
 - `description`: imperative mood, lowercase, no trailing period, max 72 characters
 
+**Body (optional, add when subject alone is insufficient):**
+- Separate from subject with a blank line
+- Use bullet points (`-`), one point per logical reason
+- Each bullet answers WHY, not WHAT — avoid restating what the diff already shows
+- Example:
+  ```
+  refactor(recommendation): move task DAGs into recommendation/ subdirectory
+
+  - recommendation_daily/hourly now invokes dbt_run and dump_gcs as separate
+    steps, making the monolithic dbt_run_and_dump_gcs DAG redundant
+  - move surviving task DAGs under recommendation/ for clearer namespacing
+  - remove obsolete trigger_dump_gcs test DAG
+  ```
+
 **C-3. Commit**
 
 ```
 git commit -m "<type>(<scope>): <why-description>"
 ```
+
+**C-3b. Amend if the user requests message changes**
+
+If the user asks to revise the commit message after the commit:
+- Use `git commit --amend -m "..."` (only for commits not yet pushed)
+- Apply the same subject/body rules above
 
 **C-4. Check remaining changes (Phase B loop)**
 
