@@ -1,6 +1,21 @@
 ---
 name: create-pr
 description: pull requestを作成する。ユーザーが "プルリクエストを作成して","PRを作って", "プルリク出して", などと依頼したときに使う
+allowedTools:
+  - Bash(cat *)
+  - Bash(find *)
+  - Bash(gh pr create *)
+  - Bash(gh pr list *)
+  - Bash(gh pr view *)
+  - Bash(git add *)
+  - Bash(git branch *)
+  - Bash(git commit *)
+  - Bash(git diff *)
+  - Bash(git log *)
+  - Bash(git push *)
+  - Bash(git remote *)
+  - Bash(git status *)
+  - Read
 ---
 
 # Pull Request Creator
