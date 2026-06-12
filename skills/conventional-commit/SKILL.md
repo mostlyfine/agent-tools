@@ -1,18 +1,21 @@
 ---
-name: Commit
-description: "Commit staged/unstaged changes in meaningful units using conventional commit format (English)"
+name: conventional-commit
+description: "Create git commit"
+context: fork
+agent: Explore
 allowed-tools: Bash(git status:*), Bash(git diff:*), Bash(git add:*), Bash(git apply:*), Bash(git commit:*), Bash(git log:*), AskUserQuestion
 ---
 
-# Conventional Commit
+# Your task
 
 Commit all pending changes in meaningful logical units using conventional commit format in English. Repeat until the working tree is clean.
+Do not use any other tools or do anything else. Do not send any other text or messages besides these tool calls.
 
 ## Phase A: Determine Commit Scope
 
 **A-1. Check staging state**
 
-Run `git diff --cached --stat`.
+Run !`git diff --cached --stat`
 
 - **If staged changes exist** → those changes are the commit scope. Ignore unstaged and untracked files entirely. The user has already expressed intent by staging. Proceed to Phase C.
 - **If nothing is staged** → treat all unstaged changes and untracked files as candidates. Continue to Phase B.
@@ -79,15 +82,6 @@ Rules:
 - Separate from subject with a blank line
 - Use bullet points (`-`), one point per logical reason
 - Each bullet answers WHY, not WHAT — avoid restating what the diff already shows
-- Example:
-  ```
-  refactor(recommendation): move task DAGs into recommendation/ subdirectory
-
-  - recommendation_daily/hourly now invokes dbt_run and dump_gcs as separate
-    steps, making the monolithic dbt_run_and_dump_gcs DAG redundant
-  - move surviving task DAGs under recommendation/ for clearer namespacing
-  - remove obsolete trigger_dump_gcs test DAG
-  ```
 
 **C-3. Commit**
 
@@ -104,16 +98,3 @@ If the user asks to revise the commit message after the commit:
 **C-4. Check remaining changes (Phase B loop)**
 
 Run `git status` and `git diff HEAD`. If changes remain, return to B-2.
-
----
-
-## Phase D: PR Description
-
-After all commits are done, output the following:
-
-**What this PR achieves** (1–2 sentence summary)
-
-**Why it was needed** (bullet points):
-- Why was this change necessary?
-- What problem does it solve?
-- What benefit does it provide?
