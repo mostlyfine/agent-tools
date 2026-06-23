@@ -213,14 +213,7 @@ gh skill install mostlyfine/agent-tools skill-creator
 
 ### その他よく使うスキル
 ```
-gh skill install berserkdisruptors/contextual-commits recall
-gh skill install berserkdisruptors/contextual-commits contextual-commit
-gh skill install mattpocock/skills grill-me
-gh skill install mattpocock/skills caveman
-gh skill install mattpocock/skills write-a-skill
-gh skill install forrestchang/andrej-karpathy-skills karpathy-guidelines
-gh skill install mizchi/skills empirical-prompt-tuning
-gh skill install sanyuan0704/sanyuan-skills code-review-expert
+gh skill install mattpocock/skills grilling
 
 gh skill update --all
 ```
@@ -229,30 +222,22 @@ gh skill update --all
 
 | サーバー | 用途 |
 |---------|------|
-| fetch | URL コンテンツの取得 |
 | context7 | ライブラリドキュメントの参照 |
-| filesystem | ローカルファイルシステムへのアクセス |
 
 ### Claude Code へのインストール
 
 ```bash
-claude mcp add fetch -- uvx mcp-server-fetch
 claude mcp add context7 -- npx -y @upstash/context7-mcp
-claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem . ~/src/
 ```
 
 **スコープを指定する場合:**
 
 ```bash
 # ユーザーレベル（全プロジェクトで使用）
-claude mcp add -s user fetch -- uvx mcp-server-fetch
 claude mcp add -s user context7 -- npx -y @upstash/context7-mcp
-claude mcp add -s user filesystem -- npx -y @modelcontextprotocol/server-filesystem . ~/src/
 
 # プロジェクトレベル（.mcp.json に保存）
-claude mcp add -s project fetch -- uvx mcp-server-fetch
 claude mcp add -s project context7 -- npx -y @upstash/context7-mcp
-claude mcp add -s project filesystem -- npx -y @modelcontextprotocol/server-filesystem . ~/src/
 ```
 
 **インストール確認:**
@@ -264,9 +249,7 @@ claude mcp list
 ### Copilot CLI へのインストール
 
 ```bash
-gh copilot -- mcp add fetch -- uvx mcp-server-fetch
 gh copilot -- mcp add context7 -- npx -y @upstash/context7-mcp
-gh copilot -- mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem . ~/src/
 ```
 
 **インストール確認:**
