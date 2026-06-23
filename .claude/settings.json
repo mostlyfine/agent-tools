@@ -1,8 +1,10 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "cleanupPeriodDays": 30,
   "env": {
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "60"
   },
+  "includeCoAuthoredBy": false,
   "permissions": {
     "allow": [
       "Edit",
@@ -16,6 +18,7 @@
       "Bash(echo *)",
       "Bash(fd *)",
       "Bash(find *)",
+      "Bash(rtk *)",
       "Bash(gh issue list *)",
       "Bash(gh issue view *)",
       "Bash(gh pr list *)",
@@ -49,13 +52,14 @@
       "Bash(terraform state list *)",
       "Bash(terraform state show *)",
       "Bash(terraform validate *)",
+      "Bash(terraform show *)",
+      "Bash(tflint *)",
       "Bash(uniq *)",
       "Bash(uv add *)",
       "Bash(uv sync *)",
       "Bash(wc *)"
     ],
     "deny": [
-      "Bash(curl *)",
       "Bash(npm publish *)",
       "Bash(pnpm publish *)",
       "Bash(git rebase *)",
@@ -105,19 +109,26 @@
   },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
-    "commit-commands@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": false,
     "context7@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
     "security-guidance@claude-plugins-official": false,
     "feature-dev@claude-plugins-official": false,
     "code-review@claude-plugins-official": false,
-    "andrej-karpathy-skills@multica-ai/andrej-karpathy-skills": true
+    "andrej-karpathy-skills@multica-ai/andrej-karpathy-skills": true,
+    "pskoett-ai-skills@pskoett-skills": true
   },
   "extraKnownMarketplaces": {
     "multica-ai/andrej-karpathy-skills": {
       "source": {
         "source": "github",
         "repo": "multica-ai/andrej-karpathy-skills"
+      }
+    },
+    "pskoett-skills": {
+      "source": {
+        "source": "github",
+        "repo": "pskoett/pskoett-skills"
       }
     }
   },
@@ -126,7 +137,7 @@
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
   "autoCompactEnabled": true,
-  "includeCoAuthoredBy": false,
-  "cleanupPeriodDays": 30,
-  "showTurnDuration": true
+  "showTurnDuration": true,
+  "remoteControlAtStartup": true,
+  "agentPushNotifEnabled": true
 }
