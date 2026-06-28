@@ -271,3 +271,9 @@ cp /path/to/.github/.mcp.json .mcp.json
 - [Claude Code](https://github.com/anthropics/claude-code)
 - [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (オプション)
 - `jq`（ログ保存スクリプトで使用）
+
+## Loop Engineering
+```
+/goal CLAUDE.mdのフローに従って、[実装したいタスクやバグの内容] を完了させて。
+```
+
