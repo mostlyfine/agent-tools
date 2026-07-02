@@ -96,6 +96,10 @@ def copilot_status(title: str, content: str) -> str:
     return copilot_title_status(title)
 
 
+def _run(cmd: list) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, capture_output=True, text=True, check=False)
+
+
 def is_copilot_pane(cmd: str, pid: str) -> bool:
     # copilot sometimes runs as a child of node — check child PIDs too
     if cmd == "copilot":
@@ -104,12 +108,7 @@ def is_copilot_pane(cmd: str, pid: str) -> bool:
         return False
 
     try:
-        pgrep = subprocess.run(
-            ["pgrep", "-P", pid],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        pgrep = _run(["pgrep", "-P", pid])
     except OSError:
         return False
     if pgrep.returncode != 0 or not pgrep.stdout.strip():
@@ -117,12 +116,7 @@ def is_copilot_pane(cmd: str, pid: str) -> bool:
 
     child_pids = pgrep.stdout.split()
     try:
-        ps_out = subprocess.run(
-            ["ps", "-o", "command=", "-p", *child_pids],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        ps_out = _run(["ps", "-o", "command=", "-p", *child_pids])
     except OSError:
         return False
     if ps_out.returncode != 0:
@@ -145,18 +139,11 @@ def _content_has_braille(content: str) -> bool:
     return any(_is_braille(ch) for ch in content)
 
 
-def _has_only_borders_after(lines, start_idx) -> bool:
-    for line in lines[start_idx + 1:]:
-        if not _NON_CONTENT_BORDER_RE.match(line):
-            return False
-    return True
-
-
 def _detect_waiting_for_input(lines: list, pattern: re.Pattern) -> bool:
     for i in range(len(lines) - 1, -1, -1):
         line = lines[i]
         if pattern.search(line):
-            return _has_only_borders_after(lines, i)
+            return all(_NON_CONTENT_BORDER_RE.match(l) for l in lines[i + 1:])
         if not _NON_CONTENT_BORDER_RE.match(line):
             return False
     return False
@@ -306,20 +293,14 @@ _PANE_FORMAT = "#{pane_id}|#{pane_current_command}|#{pane_current_path}|#{pane_p
 
 
 def current_session() -> str:
-    out = subprocess.run(
-        ["tmux", "display-message", "-p", "#S"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    out = _run(["tmux", "display-message", "-p", "#S"])
     if out.returncode != 0:
         raise RuntimeError(f"tmux display-message failed: {out.stderr.strip()}")
     return out.stdout.strip()
 
 
 def list_panes(session: str) -> list:
-    cmd = ["tmux", "list-panes", "-t", session, "-s", "-F", _PANE_FORMAT]
-    out = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    out = _run(["tmux", "list-panes", "-t", session, "-s", "-F", _PANE_FORMAT])
     if out.returncode != 0:
         raise RuntimeError(f"tmux list-panes failed: {out.stderr.strip()}")
     panes = []
@@ -334,12 +315,7 @@ def list_panes(session: str) -> list:
 
 
 def capture_pane(pane_id: str) -> str:
-    out = subprocess.run(
-        ["tmux", "capture-pane", "-t", pane_id, "-p"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    out = _run(["tmux", "capture-pane", "-t", pane_id, "-p"])
     if out.returncode != 0:
         return ""
     return out.stdout
@@ -367,7 +343,7 @@ _AGENT_CONFIGS = [
 ]
 
 
-def collect_panes(session: str) -> list:
+def collect_panes(session: str, executor: ThreadPoolExecutor | None = None) -> list:
     raws = list_panes(session)
     agent_raws = []
     for raw in raws:
@@ -391,6 +367,8 @@ def collect_panes(session: str) -> list:
 
     if not agent_raws:
         return []
+    if executor is not None:
+        return list(executor.map(_build, agent_raws))
     with ThreadPoolExecutor(max_workers=min(8, len(agent_raws))) as ex:
         return list(ex.map(_build, agent_raws))
 
@@ -417,7 +395,7 @@ def _status_glyph(status: str):
 def render(panes, session, selected_pane_id=None):
     sep = "─" * shutil.get_terminal_size().columns
     lines = []
-    lines.append(f"{_BOLD}  {'AGENT':<8}{'ID':>5}  {'TASK':<55} DIR{_RESET}")
+    lines.append(f"{_BOLD}  {'AGENT':<8}{'ID':>5}  {'TASK':<{_TASK_MAX_LEN}} DIR{_RESET}")
     lines.append(sep)
     if not panes:
         lines.append(f"No agent sessions found in tmux session: {session}")
@@ -428,7 +406,7 @@ def render(panes, session, selected_pane_id=None):
             row = (
                 f"{marker}{color}{glyph}{_RESET}  {p.agent:<8}"
                 f"{_DIM}{p.pane_id_num:>5}{_RESET}  "
-                f"{_ljust_visual(p.task, 55)} {_DIM}{p.dir}{_RESET}"
+                f"{_ljust_visual(p.task, _TASK_MAX_LEN)} {_DIM}{p.dir}{_RESET}"
             )
             if p.pane_id_num == selected_pane_id:
                 inner = row.replace(_RESET, _RESET + _REVERSE)
@@ -448,11 +426,9 @@ def parse_args(argv=None):
                         help="send terminal notification on idle/waiting transitions")
     ns = parser.parse_args(argv)
 
-    watch_set = ns.watch is not None
-    interval = ns.watch if ns.watch else 1
-    return argparse.Namespace(
-        watch=watch_set, interval=interval, notify=ns.notify,
-    )
+    ns.interval = ns.watch if ns.watch else 1
+    ns.watch = ns.watch is not None
+    return ns
 
 
 def check_deps() -> None:
@@ -524,53 +500,51 @@ def watch_loop(args, session):
 
     selected_pane_id = None
     prev_status: dict = {}
-    try:
-        while True:
-            try:
-                panes = collect_panes(session)
-            except Exception as e:
-                print(f"agent-ps: {e}", file=sys.stderr)
-                panes = []
-
-            if args.notify:
-                prev_status = check_and_notify(prev_status, panes)
-
-            selected_pane_id = reconcile_selection(selected_pane_id, panes)
-
-            if needs_clear:
-                _tput("clear")
-                needs_clear = False
-
-            buf = render(panes, session, selected_pane_id=selected_pane_id)
-            _tput("home")
-            label = f"agent-ps [{session}]"
-            sys.stdout.write(
-                f"{_DIM}{label}  (every {args.interval}s, "
-                f"↑↓/jk select, Enter focus, Esc cancel, q quit, Ctrl-C stop){_RESET}"
-                f"\033[K\n\033[K\n"
-            )
-            sys.stdout.write(buf.replace("\n", "\033[K\n") + "\033[K")
-            sys.stdout.flush()
-            _tput("ed")
-
-            if is_tty:
-                key = wait_for_key(args.interval)
-                if key is None:
-                    continue
-                selected_pane_id, action = handle_key(key, panes, selected_pane_id)
-                if action == "quit":
-                    break
-                if action == "focus" and selected_pane_id is not None:
-                    focus_pane(selected_pane_id)
-            else:
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        try:
+            while True:
                 try:
+                    panes = collect_panes(session, executor)
+                except Exception as e:
+                    print(f"agent-ps: {e}", file=sys.stderr)
+                    panes = []
+
+                if args.notify:
+                    prev_status = check_and_notify(prev_status, panes)
+
+                selected_pane_id = reconcile_selection(selected_pane_id, panes)
+
+                if needs_clear:
+                    _tput("clear")
+                    needs_clear = False
+
+                buf = render(panes, session, selected_pane_id=selected_pane_id)
+                _tput("home")
+                label = f"agent-ps [{session}]"
+                sys.stdout.write(
+                    f"{_DIM}{label}  (every {args.interval}s, "
+                    f"↑↓/jk select, Enter focus, Esc cancel, q quit, Ctrl-C stop){_RESET}"
+                    f"\033[K\n\033[K\n"
+                )
+                sys.stdout.write(buf.replace("\n", "\033[K\n") + "\033[K")
+                sys.stdout.flush()
+                _tput("ed")
+
+                if is_tty:
+                    key = wait_for_key(args.interval)
+                    if key is None:
+                        continue
+                    selected_pane_id, action = handle_key(key, panes, selected_pane_id)
+                    if action == "quit":
+                        break
+                    if action == "focus" and selected_pane_id is not None:
+                        focus_pane(selected_pane_id)
+                else:
                     time.sleep(args.interval)
-                except KeyboardInterrupt:
-                    break
-    finally:
-        _restore_tty()
-        _tput("cnorm")
-        _tput("clear")
+        finally:
+            _restore_tty()
+            _tput("cnorm")
+            _tput("clear")
 
 
 def _escape_applescript(s: str) -> str:
