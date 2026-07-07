@@ -20,6 +20,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
+try:
+    import psutil as _psutil
+except ImportError:
+    _psutil = None
+
 
 def shorten_dir(path: str) -> str:
     """Return only the final directory name (basename) for display."""
@@ -100,28 +105,41 @@ def _run(cmd: list) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
-def is_copilot_pane(cmd: str, pid: str) -> bool:
-    # copilot sometimes runs as a child of node — check child PIDs too
-    if cmd == "copilot":
-        return True
-    if cmd != "node":
+def _copilot_in_children_psutil(pid: str) -> bool:
+    try:
+        children = _psutil.Process(int(pid)).children()
+        return any(any("copilot" in arg for arg in c.cmdline()) for c in children)
+    except (_psutil.NoSuchProcess, _psutil.AccessDenied, ValueError):
         return False
 
+
+def _copilot_in_children_fallback(pid: str) -> bool:
     try:
         pgrep = _run(["pgrep", "-P", pid])
     except OSError:
         return False
     if pgrep.returncode != 0 or not pgrep.stdout.strip():
         return False
-
     child_pids = pgrep.stdout.split()
     try:
         ps_out = _run(["ps", "-o", "command=", "-p", *child_pids])
     except OSError:
         return False
-    if ps_out.returncode != 0:
+    return ps_out.returncode == 0 and "copilot" in ps_out.stdout
+
+
+_copilot_in_children: Callable[[str], bool] = (
+    _copilot_in_children_psutil if _psutil is not None else _copilot_in_children_fallback
+)
+
+
+def is_copilot_pane(cmd: str, pid: str) -> bool:
+    # copilot sometimes runs as a child of node — check child PIDs too
+    if cmd == "copilot":
+        return True
+    if cmd != "node":
         return False
-    return "copilot" in ps_out.stdout
+    return _copilot_in_children(pid)
 
 
 def claude_title_status(title: str) -> str:
