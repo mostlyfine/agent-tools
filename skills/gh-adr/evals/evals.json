@@ -1,0 +1,42 @@
+{
+  "skill_name": "gh-adr",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "PR #42 からADRを作成してください。",
+      "expected_output": "gh pr view 42 でPR詳細取得 → closingIssuesReferences からIssue番号確認 → gh issue view --comments でIssue＋コメント取得 → Slackリンクがあれば抽出してユーザーに提示 → PRのmergedAtからYYYYMMDDプレフィックスを決定し docs/changes/ の同日ファイル重複を確認（find） → セルフチェック → ADRプレビュー表示 → ユーザー確認 → docs/changes/YYYYMMDD-kebab-case.md に書き込み",
+      "assertions": [
+        "出力ファイルが docs/changes/YYYYMMDD-<kebab-case>.md（YYYYMMDDはPRのmergedAtの日付）に作成される",
+        "テンプレートの全スロット（Title/Date/Author/Status/Repository/References/Why/Problem/How）が埋まっている",
+        "Why/Problem/How の各セクションが1項目1行の箇条書きである",
+        "How の各項目に固有名詞（テーブル名・ファイル名・API名など）または具体値（ID・名前・設定値）が最低1つ含まれている",
+        "How の項目がコミットタイトルの丸写しではなく「対象+操作+具体値」の形に変換されている",
+        "書き込み前にプレビューを表示しユーザーの確認を取っている"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "先月マージされたarchitectureラベルのPRをADRにまとめてほしい。",
+      "expected_output": "gh pr list --state merged --label architecture --search 'merged:>...' でPR一覧取得 → 一覧をユーザーに提示して対象確認 → 各PRについてclosingIssuesReferences確認 → Issue＋コメント取得 → Slackリンク検出時にユーザーへ提示 → 各PRのmergedAtからYYYYMMDDプレフィックスを決定（同日重複時はスラッグ末尾に -2 を付加） → セルフチェック → 全ADRのプレビューを一括表示 → 確認後に docs/changes/ 配下へ一括書き込み",
+      "assertions": [
+        "PRごとに docs/changes/YYYYMMDD-<kebab-case>.md が作成される（YYYYMMDDは各PRのmergedAtの日付）",
+        "同一日に複数の変更履歴がある場合、2件目以降のファイル名はスラッグ末尾（.md の直前）に -2, -3 が付く",
+        "本番デプロイ専用PRが含まれる場合、feature PRの内容をメインに統合しデプロイPRのURLはReferencesに記載される",
+        "各ADRでテンプレートの全スロット（Title/Date/Author/Status/Repository/References/Why/Problem/How）が埋まっている",
+        "各ADRの Why/Problem/How が1項目1行の箇条書きで、How の各項目に固有名詞または具体値が含まれる"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "ADRを作りたい。",
+      "expected_output": "AskUserQuestion で対象PR番号・期間・ラベルのいずれかを質問する。ユーザーの回答に基づいてPR取得フローに入る。",
+      "assertions": [
+        "対象が未指定のため AskUserQuestion でPR番号・期間・ラベルのいずれかを確認する",
+        "対象が確定する前にファイルの書き込みを行わない"
+      ],
+      "files": []
+    }
+  ]
+}
