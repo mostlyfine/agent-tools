@@ -89,7 +89,6 @@
       "Bash(terraform state mv *)"
     ]
   },
-  "model": "claude-sonnet-4-6",
   "hooks": {
     "SessionEnd": [
       {
@@ -116,7 +115,8 @@
     "feature-dev@claude-plugins-official": false,
     "code-review@claude-plugins-official": false,
     "andrej-karpathy-skills@multica-ai/andrej-karpathy-skills": true,
-    "pskoett-ai-skills@pskoett-skills": true
+    "pskoett-ai-skills@pskoett-skills": true,
+    "clangd-lsp@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "multica-ai/andrej-karpathy-skills": {
@@ -136,8 +136,10 @@
   "spinnerTipsEnabled": false,
   "alwaysThinkingEnabled": true,
   "effortLevel": "high",
+  "tui": "fullscreen",
   "autoCompactEnabled": true,
   "showTurnDuration": true,
   "remoteControlAtStartup": true,
-  "agentPushNotifEnabled": true
+  "agentPushNotifEnabled": true,
+  "model": "fable[1m]"
 }
