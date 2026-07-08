@@ -1,0 +1,12 @@
+{
+  "name": "mostlyfine-agent-tools",
+  "description": "Agent tools and skills for Claude Code by mostlyfine",
+  "version": "1.0.0",
+  "author": {
+    "name": "mostlyfine"
+  },
+  "license": "MIT",
+  "skills": [
+    "./skills/github-flow"
+  ]
+}
