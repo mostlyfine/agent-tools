@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""agent-ps: list Claude Code / GitHub Copilot CLI sessions running in tmux panes."""
+"""agent-ps: list Claude Code / GitHub Copilot CLI / OpenAI Codex CLI sessions running in tmux panes."""
 from __future__ import annotations
 
 import argparse
@@ -35,6 +35,7 @@ def shorten_dir(path: str) -> str:
 
 
 _TASK_MAX_LEN = 55
+_DIR_MAX_LEN = 30
 
 _STATUS_RUNNING = "running"
 _STATUS_IDLE = "idle"
@@ -45,6 +46,9 @@ _CLAUDE_IDLE_MARKS = ("✳", "✴", "✺", "✻")
 _CLAUDE_CHOICE_CURSOR_RE = re.compile(r"❯\s+\d+\.")
 _CLAUDE_NAV_HINT_RE = re.compile(
     r"Do you want to (proceed|allow)|Press Enter to (confirm|submit)"
+    r"|run a dynamic workflow\?|waiting for permission|tab to amend"
+    r"|ctrl\+e to explain|review your answers|skip interview and plan immediately",
+    re.IGNORECASE,
 )
 _NON_CONTENT_BORDER_RE = re.compile(r"^[\s│╰╯─╭╮]*$")
 
@@ -80,7 +84,8 @@ def copilot_task(title: str) -> str:
 
 
 _COPILOT_NAV_HINT_RE = re.compile(
-    r"↑/?↓ to (navigate|select)|(?:Press )?Enter to (select|confirm|submit|continue)",
+    r"↑/?↓ to (navigate|select)|(?:Press )?Enter to (select|confirm|submit|continue)"
+    r"|Enter accept",
     re.IGNORECASE,
 )
 
@@ -89,20 +94,20 @@ def copilot_title_status(title: str) -> str:
     return _STATUS_RUNNING if title.startswith("\U0001f916") else _STATUS_IDLE
 
 
-def copilot_status(title: str, content: str) -> str:
+def _status_from_nav_hint(title: str, content: str, nav_hint_re, title_status_fn) -> str:
     lines = content.splitlines()
-    if _detect_waiting_for_input(lines, _COPILOT_NAV_HINT_RE):
+    if _detect_waiting_for_input(lines, nav_hint_re):
         return _STATUS_WAITING
-    return copilot_title_status(title)
+    return title_status_fn(title)
 
 
-def is_copilot_pane(cmd: str, pid: str) -> bool:
-    # copilot sometimes runs as a child of node — check child PIDs too
-    if cmd == "copilot":
-        return True
-    if cmd != "node":
-        return False
+def copilot_status(title: str, content: str) -> str:
+    return _status_from_nav_hint(title, content, _COPILOT_NAV_HINT_RE, copilot_title_status)
 
+
+def _is_node_child_of(pid: str, name: str) -> bool:
+    """Check whether a process named `name` is running as a child of `pid`
+    (for CLIs that get launched via a node wrapper, e.g. npm-installed binaries)."""
     try:
         pgrep = subprocess.run(
             ["pgrep", "-P", pid],
@@ -127,7 +132,16 @@ def is_copilot_pane(cmd: str, pid: str) -> bool:
         return False
     if ps_out.returncode != 0:
         return False
-    return "copilot" in ps_out.stdout
+    return name in ps_out.stdout
+
+
+def is_copilot_pane(cmd: str, pid: str) -> bool:
+    # copilot sometimes runs as a child of node — check child PIDs too
+    if cmd == "copilot":
+        return True
+    if cmd != "node":
+        return False
+    return _is_node_child_of(pid, "copilot")
 
 
 def claude_title_status(title: str) -> str:
@@ -185,6 +199,46 @@ def is_claude_pane(cmd: str, title: str) -> bool:
     return False
 
 
+_CODEX_TITLE_BLOCKED_MARK = "Action Required"
+_CODEX_NAV_HINT_RE = re.compile(
+    r"press enter to confirm or esc to cancel"
+    r"|enter to submit answer"
+    r"|enter to submit all"
+    r"|allow command\?",
+    re.IGNORECASE,
+)
+
+
+def codex_title_status(title: str) -> str:
+    if not title:
+        return _STATUS_UNKNOWN
+    if _CODEX_TITLE_BLOCKED_MARK in title:
+        return _STATUS_WAITING
+    if _is_braille(title[0]):
+        return _STATUS_RUNNING
+    return _STATUS_IDLE
+
+
+def codex_status(title: str, content: str) -> str:
+    return _status_from_nav_hint(title, content, _CODEX_NAV_HINT_RE, codex_title_status)
+
+
+def codex_task(title: str) -> str:
+    task = title
+    if task and _is_braille(task[0]):
+        task = task[1:].lstrip()
+    return _truncate(task, _TASK_MAX_LEN)
+
+
+def is_codex_pane(cmd: str, pid: str) -> bool:
+    # codex sometimes runs as a child of node (npm-installed wrapper) — check child PIDs too
+    if cmd == "codex":
+        return True
+    if cmd != "node":
+        return False
+    return _is_node_child_of(pid, "codex")
+
+
 @dataclass
 class PaneRaw:
     pane_id: str
@@ -226,6 +280,9 @@ def handle_key(key, panes, selected):
     if key == "escape":
         return None, None
 
+    if key == "h":
+        return selected, "toggle_help"
+
     if key in _DIR_UP_KEYS or key in _DIR_DOWN_KEYS:
         if not panes:
             return None, None
@@ -245,24 +302,64 @@ def handle_key(key, panes, selected):
     return selected, None
 
 
+# watch_loop always writes a hint line + a blank line before render()'s output,
+# so a click's terminal row must be offset by these 2 lines to index into it.
+_WATCH_BANNER_ROWS = 2
+
+
+def handle_click(cy, panes, selected, horizontal):
+    row = cy - 1 - _WATCH_BANNER_ROWS
+    pane_id_num = _pane_at_row(panes, row, horizontal)
+    if pane_id_num is None:
+        return selected, None
+    return pane_id_num, "focus"
+
+
 _KEY_MAP = {
     b"\r": "enter",
     b"\n": "enter",
     b"j": "j",
     b"k": "k",
     b"q": "q",
+    b"h": "h",
     b"\x1b": "escape",
     b"\x1b[A": "up",
     b"\x1b[B": "down",
 }
 
+# SGR extended mouse reporting: ESC [ < Cb ; Cx ; Cy (M=press | m=release)
+_MOUSE_SGR_RE = re.compile(rb"^\x1b\[<(\d+);(\d+);(\d+)([Mm])$")
+_MOUSE_WHEEL_BIT = 0x40
+_MOUSE_BUTTON_MASK = 0x03
+_MOUSE_LEFT_BUTTON = 0
+
+# CSI sequences terminate with a byte in this range ('@'-'~')
+_CSI_FINAL_BYTES = frozenset(range(0x40, 0x7F))
+
+
+def _parse_mouse_click(buf):
+    m = _MOUSE_SGR_RE.match(buf)
+    if not m:
+        return None
+    cb, cx, cy, kind = int(m[1]), int(m[2]), int(m[3]), m[4]
+    is_left_press = (
+        kind == b"M"
+        and not cb & _MOUSE_WHEEL_BIT
+        and (cb & _MOUSE_BUTTON_MASK) == _MOUSE_LEFT_BUTTON
+    )
+    return ("click", cx, cy) if is_left_press else None
+
 
 def _classify_key(buf):
-    return _KEY_MAP.get(buf, "other")
+    mapped = _KEY_MAP.get(buf)
+    if mapped:
+        return mapped
+    return _parse_mouse_click(buf) or "other"
 
 
 def wait_for_key(timeout):
-    """Block up to `timeout` seconds for a key. Returns key string or None."""
+    """Block up to `timeout` seconds for a key. Returns key string, a
+    ("click", col, row) tuple, or None."""
     fd = sys.stdin.fileno()
     rlist, _, _ = select.select([sys.stdin], [], [], timeout)
     if not rlist:
@@ -273,15 +370,34 @@ def wait_for_key(timeout):
         return None
     if first != b"\x1b":
         return _classify_key(first)
-    # Possible escape sequence; read up to 2 more bytes with short timeout
+
     rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
     if not rlist:
         return _classify_key(first)
     try:
-        rest = os.read(fd, 2)
+        second = os.read(fd, 1)
     except OSError:
         return _classify_key(first)
-    return _classify_key(first + rest)
+    buf = first + second
+    if second != b"[":
+        return _classify_key(buf)
+
+    # CSI sequence (arrow key or SGR mouse report): read until the final byte,
+    # since mouse reports have variable-length coordinate digits.
+    while True:
+        rlist, _, _ = select.select([sys.stdin], [], [], 0.05)
+        if not rlist:
+            break
+        try:
+            ch = os.read(fd, 1)
+        except OSError:
+            break
+        if not ch:
+            break  # EOF: stdin closed mid-sequence, stop reading instead of spinning
+        buf += ch
+        if ch[0] in _CSI_FINAL_BYTES:
+            break
+    return _classify_key(buf)
 
 
 def focus_pane(pane_id_num):
@@ -361,10 +477,17 @@ def _is_copilot(raw: PaneRaw) -> bool:
     return is_copilot_pane(raw.cmd, raw.pid)
 
 
+def _is_codex(raw: PaneRaw) -> bool:
+    return is_codex_pane(raw.cmd, raw.pid)
+
+
 _AGENT_CONFIGS = [
     _AgentCfg("claude", "Claude", _is_claude, claude_status, claude_task),
     _AgentCfg("copilot", "Copilot", _is_copilot, copilot_status, copilot_task),
+    _AgentCfg("codex", "Codex", _is_codex, codex_status, codex_task),
 ]
+
+_AGENT_COL_WIDTH = max(len(cfg.name) for cfg in _AGENT_CONFIGS) + 1
 
 
 def collect_panes(session: str) -> list:
@@ -397,61 +520,115 @@ def collect_panes(session: str) -> list:
 
 _BOLD = "\033[1m"
 _DIM = "\033[2m"
-_GREEN = "\033[32m"
-_YELLOW = "\033[33m"
 _RESET = "\033[0m"
 _REVERSE = "\033[7m"
 
 _STATUS_GLYPH = {
-    _STATUS_RUNNING: ("●", _GREEN),
-    _STATUS_IDLE: ("○", _YELLOW),
-    _STATUS_WAITING: (">", _YELLOW),
-    _STATUS_UNKNOWN: ("?", _DIM),
+    _STATUS_RUNNING: "🟡",
+    _STATUS_IDLE: "🔵",
+    _STATUS_WAITING: "🔴",
+    _STATUS_UNKNOWN: "🟢",
 }
 
+def _status_glyph(status: str) -> str:
+    return _STATUS_GLYPH.get(status, "?")
 
-def _status_glyph(status: str):
-    return _STATUS_GLYPH.get(status, ("?", _DIM))
+
+def _reverse_wrap(s: str) -> str:
+    return f"{_REVERSE}{s.replace(_RESET, _RESET + _REVERSE)}{_RESET}"
 
 
-def render(panes, session, selected_pane_id=None):
-    sep = "─" * shutil.get_terminal_size().columns
+def _marker(pane_id_num: str, selected_pane_id) -> str:
+    return "▶ " if pane_id_num == selected_pane_id else "  "
+
+
+def _terminal_sep() -> str:
+    return "─" * shutil.get_terminal_size().columns
+
+
+def _render_table(panes, session, selected_pane_id=None):
     lines = []
-    lines.append(f"{_BOLD}  {'AGENT':<8}{'ID':>5}  {'TASK':<55} DIR{_RESET}")
-    lines.append(sep)
+    lines.append(f"{_BOLD}  {'AGENT':<{_AGENT_COL_WIDTH}}{'ID':>5}  {'TASK':<{_TASK_MAX_LEN}} DIR{_RESET}")
+    lines.append(_terminal_sep())
     if not panes:
         lines.append(f"No agent sessions found in tmux session: {session}")
     else:
         for p in panes:
-            glyph, color = _status_glyph(p.status)
-            marker = "▶ " if p.pane_id_num == selected_pane_id else "  "
+            marker = _marker(p.pane_id_num, selected_pane_id)
+            agent = _truncate(p.agent, _AGENT_COL_WIDTH)
+            dir_ = _truncate(p.dir, _DIR_MAX_LEN)
             row = (
-                f"{marker}{color}{glyph}{_RESET}  {p.agent:<8}"
+                f"{marker}{_status_glyph(p.status)}  "
+                f"{_ljust_visual(agent, _AGENT_COL_WIDTH)}"
                 f"{_DIM}{p.pane_id_num:>5}{_RESET}  "
-                f"{_ljust_visual(p.task, 55)} {_DIM}{p.dir}{_RESET}"
+                f"{_ljust_visual(p.task, _TASK_MAX_LEN)} {_DIM}{dir_}{_RESET}"
             )
             if p.pane_id_num == selected_pane_id:
-                inner = row.replace(_RESET, _RESET + _REVERSE)
-                row = f"{_REVERSE}{inner}{_RESET}"
+                row = _reverse_wrap(row)
             lines.append(row)
     return "\n".join(lines)
+
+
+def _render_horizontal(panes, session, selected_pane_id=None):
+    if not panes:
+        return f"No agent sessions found in tmux session: {session}"
+
+    blocks = []
+    for p in panes:
+        marker = _marker(p.pane_id_num, selected_pane_id)
+        line1 = f"{marker}{_status_glyph(p.status)}  {p.agent}: {p.pane_id_num}"
+        line2 = p.task
+        line3 = f"{_DIM}{_truncate(p.dir, _DIR_MAX_LEN)}{_RESET}"
+        block = f"{line1}\n{line2}\n{line3}"
+        if p.pane_id_num == selected_pane_id:
+            block = _reverse_wrap(block)
+        blocks.append(f"{block}\n{_terminal_sep()}")
+    return "\n".join(blocks)
+
+
+def render(panes, session, selected_pane_id=None, horizontal: bool = False):
+    if horizontal:
+        return _render_horizontal(panes, session, selected_pane_id)
+    return _render_table(panes, session, selected_pane_id)
+
+
+# These row counts must stay in sync with _render_table()/_render_horizontal():
+# table has a 2-line header before pane rows; each horizontal block is 4 lines
+# (3 clickable content lines + 1 trailing separator).
+_TABLE_HEADER_ROWS = 2
+_HORIZONTAL_BLOCK_ROWS = 4
+_HORIZONTAL_CLICKABLE_ROWS = _HORIZONTAL_BLOCK_ROWS - 1
+
+
+def _pane_at_row(panes, row: int, horizontal: bool):
+    """Resolve a single 0-indexed row of render()'s output directly to its
+    pane_id_num, without building a map for the whole pane list."""
+    if horizontal:
+        idx, offset = divmod(row, _HORIZONTAL_BLOCK_ROWS)
+        if offset >= _HORIZONTAL_CLICKABLE_ROWS:
+            return None
+    else:
+        idx = row - _TABLE_HEADER_ROWS
+    return panes[idx].pane_id_num if 0 <= idx < len(panes) else None
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         prog="agent-ps",
-        description="List Claude Code / GitHub Copilot CLI sessions in tmux",
+        description="List Claude Code / GitHub Copilot CLI / OpenAI Codex CLI sessions in tmux",
     )
     parser.add_argument("-w", "--watch", nargs="?", const=1, type=int, default=None,
                         help="watch mode (default 1s interval)")
     parser.add_argument("-n", "--notify", action="store_true",
                         help="send terminal notification on idle/waiting transitions")
+    parser.add_argument("-H", "--horizontal", action="store_true",
+                        help="render each session as a stacked card instead of a table row")
     ns = parser.parse_args(argv)
 
     watch_set = ns.watch is not None
     interval = ns.watch if ns.watch else 1
     return argparse.Namespace(
-        watch=watch_set, interval=interval, notify=ns.notify,
+        watch=watch_set, interval=interval, notify=ns.notify, horizontal=ns.horizontal,
     )
 
 
@@ -472,7 +649,7 @@ def main(argv=None) -> int:
         watch_loop(args, session)
         return 0
     panes = collect_panes(session)
-    print(render(panes, session))
+    print(render(panes, session, horizontal=args.horizontal))
     return 0
 
 
@@ -482,6 +659,8 @@ _ANSI_CAPS = {
     "clear": "\033[2J\033[H",
     "home": "\033[H",
     "ed": "\033[J",
+    "mouse_on": "\033[?1000h\033[?1006h",
+    "mouse_off": "\033[?1000l\033[?1006l",
 }
 
 
@@ -519,10 +698,12 @@ def watch_loop(args, session):
 
     if is_tty:
         tty.setcbreak(fd)
+        _tput("mouse_on")
     _tput("civis")
     _tput("clear")
 
     selected_pane_id = None
+    show_help = False
     prev_status: dict = {}
     try:
         while True:
@@ -541,12 +722,18 @@ def watch_loop(args, session):
                 _tput("clear")
                 needs_clear = False
 
-            buf = render(panes, session, selected_pane_id=selected_pane_id)
+            buf = render(panes, session, selected_pane_id=selected_pane_id, horizontal=args.horizontal)
             _tput("home")
             label = f"agent-ps [{session}]"
+            if show_help:
+                controls = (
+                    "↑↓/jk select, Enter focus, click select+focus, "
+                    "Esc cancel, q quit, Ctrl-C stop, h hide help"
+                )
+            else:
+                controls = "h help"
             sys.stdout.write(
-                f"{_DIM}{label}  (every {args.interval}s, "
-                f"↑↓/jk select, Enter focus, Esc cancel, q quit, Ctrl-C stop){_RESET}"
+                f"{_DIM}{label}  (every {args.interval}s, {controls}){_RESET}"
                 f"\033[K\n\033[K\n"
             )
             sys.stdout.write(buf.replace("\n", "\033[K\n") + "\033[K")
@@ -557,11 +744,19 @@ def watch_loop(args, session):
                 key = wait_for_key(args.interval)
                 if key is None:
                     continue
-                selected_pane_id, action = handle_key(key, panes, selected_pane_id)
+                if isinstance(key, tuple) and key[0] == "click":
+                    _, _, cy = key
+                    selected_pane_id, action = handle_click(
+                        cy, panes, selected_pane_id, args.horizontal
+                    )
+                else:
+                    selected_pane_id, action = handle_key(key, panes, selected_pane_id)
                 if action == "quit":
                     break
                 if action == "focus" and selected_pane_id is not None:
                     focus_pane(selected_pane_id)
+                if action == "toggle_help":
+                    show_help = not show_help
             else:
                 try:
                     time.sleep(args.interval)
@@ -569,6 +764,7 @@ def watch_loop(args, session):
                     break
     finally:
         _restore_tty()
+        _tput("mouse_off")
         _tput("cnorm")
         _tput("clear")
 

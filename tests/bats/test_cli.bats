@@ -39,3 +39,18 @@ setup() {
     run timeout 2 python3 "$AGENT_PS" -w 3
     [[ "$status" -eq 0 || "$status" -eq 124 ]]
 }
+
+@test "--horizontal フラグは受け付けて exit 0" {
+    run python3 "$AGENT_PS" --horizontal
+    [ "$status" -eq 0 ]
+}
+
+@test "-H（短縮形）は受け付けて exit 0" {
+    run python3 "$AGENT_PS" -H
+    [ "$status" -eq 0 ]
+}
+
+@test "-w と -H の併用を受け付ける" {
+    run timeout 2 python3 "$AGENT_PS" -w -H
+    [[ "$status" -eq 0 || "$status" -eq 124 ]]
+}

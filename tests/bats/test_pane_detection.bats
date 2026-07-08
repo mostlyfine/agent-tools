@@ -49,3 +49,21 @@ load "helpers/common"
     [ "$status" -eq 0 ]
     [ "$output" = "False" ]
 }
+
+@test "is_codex_pane: cmd=codex は直接マッチする" {
+    run call_python is_codex_pane "codex" "99999"
+    [ "$status" -eq 0 ]
+    [ "$output" = "True" ]
+}
+
+@test "is_codex_pane: cmd=bash はマッチしない" {
+    run call_python is_codex_pane "bash" "99999"
+    [ "$status" -eq 0 ]
+    [ "$output" = "False" ]
+}
+
+@test "is_codex_pane: cmd=node で子プロセスにcodexがなければマッチしない" {
+    run call_python is_codex_pane "node" "99999"
+    [ "$status" -eq 0 ]
+    [ "$output" = "False" ]
+}

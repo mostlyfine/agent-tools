@@ -19,16 +19,60 @@ mod = importlib.util.module_from_spec(spec)
 sys.modules["agent_ps"] = mod
 loader.exec_module(mod)
 
+def _classify_key_hex(hex_str):
+    result = mod._classify_key(bytes.fromhex(hex_str))
+    if isinstance(result, tuple):
+        return ":".join(str(part) for part in result)
+    return result
+
+
+def _build_panes(pane_ids_csv):
+    return [
+        mod.Pane(agent="claude", pane_id_num=pid, status="idle", task="", dir="")
+        for pid in pane_ids_csv.split(",")
+        if pid
+    ]
+
+
+def _pane_at_row(horizontal_flag, row, pane_ids_csv):
+    panes = _build_panes(pane_ids_csv)
+    return mod._pane_at_row(panes, int(row), horizontal_flag == "1")
+
+
+def _handle_click(cy, pane_ids_csv, selected, horizontal_flag):
+    panes = _build_panes(pane_ids_csv)
+    selected = None if selected == "-" else selected
+    result_selected, action = mod.handle_click(
+        int(cy), panes, selected, horizontal_flag == "1"
+    )
+    return f"{result_selected},{action}"
+
+
+def _handle_key(key, pane_ids_csv, selected):
+    panes = _build_panes(pane_ids_csv)
+    selected = None if selected == "-" else selected
+    result_selected, action = mod.handle_key(key, panes, selected)
+    return f"{result_selected},{action}"
+
+
 _FUNCTIONS = {
     "claude_task": mod.claude_task,
     "copilot_task": mod.copilot_task,
+    "codex_task": mod.codex_task,
     "claude_status": mod.claude_status,
     "copilot_status": mod.copilot_status,
+    "codex_status": mod.codex_status,
     "is_claude_pane": mod.is_claude_pane,
     "is_copilot_pane": mod.is_copilot_pane,
+    "is_codex_pane": mod.is_codex_pane,
     "shorten_dir": mod.shorten_dir,
     "claude_title_status": mod.claude_title_status,
     "copilot_title_status": mod.copilot_title_status,
+    "codex_title_status": mod.codex_title_status,
+    "classify_key_hex": _classify_key_hex,
+    "pane_at_row": _pane_at_row,
+    "handle_click": _handle_click,
+    "handle_key": _handle_key,
 }
 
 if __name__ == "__main__":

@@ -71,3 +71,32 @@ load "helpers/common"
     [ "$status" -eq 0 ]
     [ "$output" = "" ]
 }
+
+# codex_task
+
+@test "codex_task: ブレイユ文字プレフィックスを除去する" {
+    run call_python codex_task $'⠁ fixing bug'
+    [ "$status" -eq 0 ]
+    [ "$output" = "fixing bug" ]
+}
+
+@test "codex_task: プレフィックスなしのタイトルはそのまま返す" {
+    run call_python codex_task "plain task"
+    [ "$status" -eq 0 ]
+    [ "$output" = "plain task" ]
+}
+
+@test "codex_task: 55文字を超えるタスクは省略記号で切り詰める" {
+    local long_title
+    long_title="$(python3 -c "print('x' * 60)")"
+    run call_python codex_task "$long_title"
+    [ "$status" -eq 0 ]
+    [ "${#output}" -le 55 ]
+    [[ "$output" == *"..." ]]
+}
+
+@test "codex_task: 空のタイトルは空文字を返す" {
+    run call_python codex_task ""
+    [ "$status" -eq 0 ]
+    [ "$output" = "" ]
+}

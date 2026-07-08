@@ -83,3 +83,81 @@ load "helpers/common"
     [ "$status" -eq 0 ]
     [ "$output" = "waiting_for_input" ]
 }
+
+@test "copilot_status: 'Enter accept' の nav hint があれば waiting_for_input" {
+    local content=$'Enter accept\n╰───────────────╯'
+    run call_python copilot_status "" "$content"
+    [ "$status" -eq 0 ]
+    [ "$output" = "waiting_for_input" ]
+}
+
+# claude_status: 追加フレーズ
+
+@test "claude_status: 'waiting for permission' があれば waiting_for_input" {
+    local content=$'waiting for permission\n╰───────────────╯'
+    run call_python claude_status "" "$content"
+    [ "$status" -eq 0 ]
+    [ "$output" = "waiting_for_input" ]
+}
+
+@test "claude_status: 'tab to amend' があれば waiting_for_input" {
+    local content=$'tab to amend\n╰───────────────╯'
+    run call_python claude_status "" "$content"
+    [ "$status" -eq 0 ]
+    [ "$output" = "waiting_for_input" ]
+}
+
+@test "claude_status: 'run a dynamic workflow?' があれば waiting_for_input" {
+    local content=$'run a dynamic workflow?\n╰───────────────╯'
+    run call_python claude_status "" "$content"
+    [ "$status" -eq 0 ]
+    [ "$output" = "waiting_for_input" ]
+}
+
+# codex_title_status
+
+@test "codex_title_status: タイトルが空なら unknown" {
+    run call_python codex_title_status ""
+    [ "$status" -eq 0 ]
+    [ "$output" = "unknown" ]
+}
+
+@test "codex_title_status: タイトルに 'Action Required' を含めば waiting_for_input" {
+    run call_python codex_title_status "Action Required: approve command"
+    [ "$status" -eq 0 ]
+    [ "$output" = "waiting_for_input" ]
+}
+
+@test "codex_title_status: タイトルがブレイユ文字で始まれば running" {
+    run call_python codex_title_status $'⠁title'
+    [ "$status" -eq 0 ]
+    [ "$output" = "running" ]
+}
+
+@test "codex_title_status: 通常タイトルなら idle" {
+    run call_python codex_title_status "codex fixing bug"
+    [ "$status" -eq 0 ]
+    [ "$output" = "idle" ]
+}
+
+# codex_status
+
+@test "codex_status: nav hint(allow command?)が末尾行にあれば waiting_for_input" {
+    local content=$'│ Allow command? │\n╰─────────────────╯'
+    run call_python codex_status "codex fixing bug" "$content"
+    [ "$status" -eq 0 ]
+    [ "$output" = "waiting_for_input" ]
+}
+
+@test "codex_status: nav hint の後にコンテンツ行があれば waiting_for_input にならない" {
+    local content=$'Allow command?\nsome other content'
+    run call_python codex_status "codex fixing bug" "$content"
+    [ "$status" -eq 0 ]
+    [ "$output" != "waiting_for_input" ]
+}
+
+@test "codex_status: コンテンツに nav hint が無ければタイトル判定にフォールバックする(running)" {
+    run call_python codex_status $'⠁title' ""
+    [ "$status" -eq 0 ]
+    [ "$output" = "running" ]
+}
