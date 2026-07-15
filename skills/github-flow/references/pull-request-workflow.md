@@ -20,6 +20,7 @@ git push -u origin <branch-name>
 `-u`（`--set-upstream`）で追跡ブランチを設定すると、以降は `git push` だけで済む。
 
 フォースプッシュが必要な場合（rebase後など）は **必ず** `--force-with-lease` を使う。`--force` はリモートの他者の変更を無条件に上書きするため禁止。
+リモートへプッシュする前に必ずユーザーに確認する。
 
 ```bash
 git push --force-with-lease origin <branch-name>

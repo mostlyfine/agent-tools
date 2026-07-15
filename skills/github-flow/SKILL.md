@@ -130,6 +130,8 @@ ls lefthook.yml .lefthook.yml captainhook.json .husky/pre-commit .pre-commit-con
 
 ## Step 5: プッシュ
 
+リモートへプッシュする前に必ずユーザーに確認する。
+
 ```bash
 git push -u origin <branch-name>
 ```
