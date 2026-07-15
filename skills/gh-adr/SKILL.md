@@ -1,19 +1,7 @@
 ---
 name: gh-adr
 description: gh CLIでPR・Issueの履歴を取得し変更履歴を生成するスキル。「変更履歴を作って」「PRから変更記録を作って」「なぜこの変更をしたか記録したい」「意思決定記録を残したい」「ADRを作って」という依頼で起動。Issue→Why/Problem（背景・問題）、PR→How/What（解決方針・実施内容）に対応する箇条書き形式でdocs/changes/配下にファイルを出力する。PR番号・期間・ラベル指定に対応。
-allowedTools:
-  - Bash(mkdir *)
-  - Bash(find *)
-  - Bash(ls *)
-  - Bash(gh pr list *)
-  - Bash(gh pr view *)
-  - Bash(gh issue list *)
-  - Bash(gh issue view *)
-  - Bash(gh repo view *)
-  - Bash(jq *)
-  - AskUserQuestion
-  - Read
-  - Write
+allowed-tools: Bash(mkdir *) Bash(find *) Bash(ls *) Bash(date *) Bash(gh pr list *) Bash(gh pr view *) Bash(gh issue list *) Bash(gh issue view *) Bash(gh repo view *) Bash(jq *) AskUserQuestion Read Write
 ---
 
 # gh-adr: 変更履歴ジェネレーター（GitHub PRs & Issues）
@@ -71,6 +59,15 @@ gh pr view <N> --json number,title,body,mergedAt,author,labels,url,closingIssues
 ```
 
 **期間指定の場合：**
+
+期間の境界日付は暗算せず、`date` コマンドで計算する（例: 「過去30日」の開始日）：
+
+```bash
+date -v-30d +%Y-%m-%d          # macOS (BSD date)
+date -d '30 days ago' +%Y-%m-%d  # Linux (GNU date)
+```
+
+計算した日付を `merged:>` に埋め込んで検索する：
 
 ```bash
 gh pr list --state merged --search "merged:>YYYYMMDD" \
