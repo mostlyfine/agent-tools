@@ -246,9 +246,7 @@ _append_segment() {
 [ "$show_model" -eq 1 ] && _append_segment "${CYAN}󰚩${RESET}  ${BOLD}${model}${RESET}"
 [ "$show_branch" -eq 1 ] && [ -n "$git_branch" ] && _append_segment "$git_branch"
 [ "$show_repo" -eq 1 ] && [ -n "$repo_str" ] && _append_segment "$repo_str"
-if [ "$show_diff" -eq 1 ] && { [ "$lines_added" -gt 0 ] || [ "$lines_removed" -gt 0 ]; }; then
-  _append_segment "${GREEN}+${lines_added}${RESET}/${RED}-${lines_removed}${RESET}"
-fi
+[ "$show_diff" -eq 1 ] && { [ "$lines_added" -gt 0 ] || [ "$lines_removed" -gt 0 ]; } && _append_segment "${GREEN}+${lines_added}${RESET}/${RED}-${lines_removed}${RESET}"
 [ "$show_cost" -eq 1 ] && _append_segment "${BOLD}\$${cost_fmt}${RESET}"
 [ "$show_current_context" -eq 1 ] && _append_segment "${ctx_color}  ${ctx_pct_display} (${ctx_tokens_fmt})${RESET}"
 if [ -n "$five_hour_remaining" ]; then
