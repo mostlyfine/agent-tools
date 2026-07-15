@@ -4,13 +4,29 @@
 
 input=$(cat)
 
-# --- Extract fields from input JSON ---
-model=$(echo "$input" | jq -r '.model.display_name // "Claude"')
-cost_usd=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
-lines_added=$(echo "$input" | jq -r '.cost.total_lines_added // 0')
-lines_removed=$(echo "$input" | jq -r '.cost.total_lines_removed // 0')
-transcript=$(echo "$input" | jq -r '.transcript_path // ""')
-cwd=$(echo "$input" | jq -r '.workspace.current_dir // .cwd // ""')
+# --- Extract fields from input JSON (1回のjq呼び出しにまとめてプロセス起動を削減) ---
+# 区切り文字はタブではなくUnit Separator(\x1f)を使う。タブはbashのIFSホワイトスペース
+# として連続区切りが圧縮されるため、空文字フィールドがあるとフィールドがずれてしまう。
+field_sep=$'\x1f'
+IFS="$field_sep" read -r model cost_usd lines_added lines_removed transcript cwd \
+  cw_total_in cw_total_out ctx_remaining_raw ctx_used_raw \
+  rl_five_pct rl_five_resets_epoch rl_seven_pct repo_name \
+  <<< "$(jq -r --arg sep "$field_sep" '[
+    (.model.display_name // "Claude"),
+    (.cost.total_cost_usd // 0),
+    (.cost.total_lines_added // 0),
+    (.cost.total_lines_removed // 0),
+    (.transcript_path // ""),
+    (.workspace.current_dir // .cwd // ""),
+    (.context_window.total_input_tokens // ""),
+    (.context_window.total_output_tokens // ""),
+    (.context_window.remaining_percentage // ""),
+    (.context_window.used_percentage // ""),
+    (.rate_limits.five_hour.used_percentage // ""),
+    (.rate_limits.five_hour.resets_at // ""),
+    (.rate_limits.seven_day.used_percentage // ""),
+    (.workspace.repo.name // "")
+  ] | join($sep)' <<< "$input")"
 
 is_vertex=0
 [ "$CLAUDE_CODE_USE_VERTEX" = "1" ] && is_vertex=1
@@ -28,11 +44,6 @@ GRAY=$'\033[90m'
 WHITE=$'\033[97m'
 
 # --- Context window usage (backend非依存: JSON直値を優先) ---
-cw_total_in=$(echo "$input" | jq -r '.context_window.total_input_tokens // empty')
-cw_total_out=$(echo "$input" | jq -r '.context_window.total_output_tokens // empty')
-ctx_remaining_raw=$(echo "$input" | jq -r '.context_window.remaining_percentage // empty')
-ctx_used_raw=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
-
 if [ -n "$cw_total_in" ] || [ -n "$cw_total_out" ]; then
   ctx_tokens=$(awk -v a="${cw_total_in:-0}" -v b="${cw_total_out:-0}" 'BEGIN { printf "%d", a + b }')
 else
@@ -83,6 +94,10 @@ _iso8601_to_epoch() {
   date -jf "%Y-%m-%dT%H:%M:%S%z" "$normalized" "+%s" 2>/dev/null
 }
 
+_remaining_pct() {
+  awk -v u="$1" -v fmt="$2" 'BEGIN { printf fmt, 100 - u }'
+}
+
 _get_usage_resets_at() {
   local cache="/tmp/oauth-usage-cache.json"
   local now_epoch
@@ -120,10 +135,6 @@ _get_usage_resets_at() {
 }
 
 # --- Rate limits (5時間/7日ウィンドウ) ---
-rl_five_pct=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // empty')
-rl_five_resets_epoch=$(echo "$input" | jq -r '.rate_limits.five_hour.resets_at // empty')
-rl_seven_pct=$(echo "$input" | jq -r '.rate_limits.seven_day.used_percentage // empty')
-
 five_hour_remaining=""
 five_hour_time_left=""
 remaining_pct=""
@@ -132,19 +143,16 @@ reset_epoch=""
 if [ -n "$rl_five_pct" ] || [ -n "$rl_five_resets_epoch" ]; then
   # Claude Code自身がJSONに含めたrate_limitsを最優先で使う（Vertex AI/通常認証どちらでも有効）。
   if [ -n "$rl_five_pct" ]; then
-    five_hour_remaining=$(awk -v u="$rl_five_pct" 'BEGIN { printf "%.1f", 100 - u }')
+    five_hour_remaining=$(_remaining_pct "$rl_five_pct" "%.1f")
   fi
   if [ -n "$rl_five_resets_epoch" ]; then
     reset_epoch="$rl_five_resets_epoch"
   fi
   if [ -n "$rl_seven_pct" ]; then
-    remaining_pct=$(awk -v u="$rl_seven_pct" 'BEGIN { printf "%.0f", 100 - u }')
+    remaining_pct=$(_remaining_pct "$rl_seven_pct" "%.0f")
   fi
-elif [ "$is_vertex" -eq 1 ]; then
-  # Vertex AIはClaude.ai OAuthの使用量ウィンドウを持たないため、この欄自体を省略する。
-  :
-else
-  # rate_limitsを返さない旧バージョン向けの救済経路。
+elif [ "$is_vertex" -ne 1 ]; then
+  # rate_limitsを返さない旧バージョン向けの救済経路(Vertex AIはClaude.ai OAuthの使用量ウィンドウを持たないため対象外)。
   resets_at=$(_get_usage_resets_at 2>/dev/null)
   if [ -n "$resets_at" ]; then
     reset_epoch=$(_iso8601_to_epoch "$resets_at")
@@ -153,11 +161,11 @@ else
   if [ -f "$cache_file" ]; then
     utilization_raw=$(jq -r '.utilization // empty' "$cache_file" 2>/dev/null)
     if [ -n "$utilization_raw" ] && [ "$utilization_raw" != "null" ]; then
-      remaining_pct=$(awk -v u="$utilization_raw" 'BEGIN { printf "%.0f", 100 - u }')
+      remaining_pct=$(_remaining_pct "$utilization_raw" "%.0f")
     fi
     fh_util=$(jq -r '.five_hour_utilization // empty' "$cache_file" 2>/dev/null)
     if [ -n "$fh_util" ] && [ "$fh_util" != "null" ]; then
-      five_hour_remaining=$(awk -v u="$fh_util" 'BEGIN { printf "%.1f", 100 - u }')
+      five_hour_remaining=$(_remaining_pct "$fh_util" "%.1f")
     fi
   fi
 fi
@@ -183,7 +191,6 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then
   if [ -n "$branch" ]; then
     # workspace.repo.name (originリモートから解析済み) を優先し、
     # 無ければトップレベルディレクトリ名にフォールバックする。
-    repo_name=$(echo "$input" | jq -r '.workspace.repo.name // empty')
     if [ -z "$repo_name" ]; then
       toplevel=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
       [ -n "$toplevel" ] && repo_name=$(basename "$toplevel")
