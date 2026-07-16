@@ -2,6 +2,28 @@
 # Custom statusline for Claude Code
 # Reads JSON from stdin and outputs formatted status line.
 
+# --- Display flags (デフォルトは全項目表示) ---
+show_model=1
+show_branch=1
+show_repo=1
+show_cost=1
+show_diff=1
+show_current_context=1
+show_weekly_context=1
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-model|-m) show_model=0 ;;
+    --no-branch|-b) show_branch=0 ;;
+    --no-repo|-r) show_repo=0 ;;
+    --no-cost|-c) show_cost=0 ;;
+    --no-diff|-d) show_diff=0 ;;
+    --no-current-context|-cc) show_current_context=0 ;;
+    --no-weekly-context|-wc) show_weekly_context=0 ;;
+  esac
+  shift
+done
+
 input=$(cat)
 
 # --- Extract fields from input JSON (1回のjq呼び出しにまとめてプロセス起動を削減) ---
@@ -186,7 +208,8 @@ fi
 
 # --- Git branch ---
 git_branch=""
-if [ -n "$cwd" ] && [ -d "$cwd" ]; then
+repo_str=""
+if { [ "$show_branch" -eq 1 ] || [ "$show_repo" -eq 1 ]; } && [ -n "$cwd" ] && [ -d "$cwd" ]; then
   branch=$(git -C "$cwd" branch --show-current 2>/dev/null)
   if [ -n "$branch" ]; then
     # workspace.repo.name (originリモートから解析済み) を優先し、
@@ -195,30 +218,37 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then
       toplevel=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
       [ -n "$toplevel" ] && repo_name=$(basename "$toplevel")
     fi
-    if [ -n "$repo_name" ]; then
-      git_branch="${MAGENTA} ${branch}${RESET}${DIM} | ${RESET}${CYAN}  ${repo_name}${RESET}"
-    else
-      git_branch="${MAGENTA} ${branch}${RESET}"
-    fi
+    git_branch="${MAGENTA} ${branch}${RESET}"
+    [ -n "$repo_name" ] && repo_str="${CYAN}  ${repo_name}${RESET}"
   fi
 fi
 
 # --- Format helpers ---
-ctx_tokens_fmt=$(awk -v t="$ctx_tokens" 'BEGIN {
+[ "$show_current_context" -eq 1 ] && ctx_tokens_fmt=$(awk -v t="$ctx_tokens" 'BEGIN {
   if (t >= 1000) printf "%.1fk", t/1000;
   else printf "%d", t;
 }')
-cost_fmt=$(awk -v c="$cost_usd" 'BEGIN { printf "%.4f", c }')
+[ "$show_cost" -eq 1 ] && cost_fmt=$(awk -v c="$cost_usd" 'BEGIN { printf "%.4f", c }')
 
 # --- Build output ---
+# outputが空の間は sep を付けず、次の追加時には sep を付ける。
+# 先頭ブロック（mode）が非表示でも余計な" | "が付かないようこの関数で判定する。
 sep="${DIM} | ${RESET}"
-output="${CYAN}󰚩${RESET}  ${BOLD}${model}${RESET}"
-[ -n "$git_branch" ] && output="${output}${sep}${git_branch}"
-if [ "$lines_added" -gt 0 ] || [ "$lines_removed" -gt 0 ]; then
-  output="${output}${sep}${GREEN}+${lines_added}${RESET}/${RED}-${lines_removed}${RESET}"
-fi
-output="${output}${sep}${BOLD}\$${cost_fmt}${RESET}"
-output="${output}${sep}${ctx_color}  ${ctx_pct_display} (${ctx_tokens_fmt})${RESET}"
+output=""
+_append_segment() {
+  if [ -z "$output" ]; then
+    output="$1"
+  else
+    output="${output}${sep}${1}"
+  fi
+}
+
+[ "$show_model" -eq 1 ] && _append_segment "${CYAN}󰚩${RESET}  ${BOLD}${model}${RESET}"
+[ "$show_branch" -eq 1 ] && [ -n "$git_branch" ] && _append_segment "$git_branch"
+[ "$show_repo" -eq 1 ] && [ -n "$repo_str" ] && _append_segment "$repo_str"
+[ "$show_diff" -eq 1 ] && { [ "$lines_added" -gt 0 ] || [ "$lines_removed" -gt 0 ]; } && _append_segment "${GREEN}+${lines_added}${RESET}/${RED}-${lines_removed}${RESET}"
+[ "$show_cost" -eq 1 ] && _append_segment "${BOLD}\$${cost_fmt}${RESET}"
+[ "$show_current_context" -eq 1 ] && _append_segment "${ctx_color}  ${ctx_pct_display} (${ctx_tokens_fmt})${RESET}"
 if [ -n "$five_hour_remaining" ]; then
   fh_int=$(printf "%.0f" "$five_hour_remaining")
   if   [ "$fh_int" -gt 60 ]; then fh_color="$GREEN"
@@ -227,9 +257,9 @@ if [ -n "$five_hour_remaining" ]; then
   else fh_color="$RED"; fi
   fh_str="⏱ ${five_hour_remaining}%"
   [ -n "$five_hour_time_left" ] && fh_str="${fh_str} (${five_hour_time_left})"
-  output="${output}${sep}${fh_color}${fh_str}${RESET}"
+  _append_segment "${fh_color}${fh_str}${RESET}"
 fi
-if [ -n "$remaining_pct" ]; then
+if [ "$show_weekly_context" -eq 1 ] && [ -n "$remaining_pct" ]; then
   if [ "$remaining_pct" -ge 80 ]; then
     rate_color="$GREEN"
   elif [ "$remaining_pct" -ge 40 ]; then
@@ -237,7 +267,7 @@ if [ -n "$remaining_pct" ]; then
   else
     rate_color="$RED"
   fi
-  output="${output}${sep}${rate_color} ${remaining_pct}%${RESET}"
+  _append_segment "${rate_color} ${remaining_pct}%${RESET}"
 fi
 
 printf "%b" "$output"
