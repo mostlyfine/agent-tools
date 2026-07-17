@@ -132,17 +132,17 @@ strip_ansi() {
     sed -E $'s/\x1b\\[[0-9;]*m//g' <<< "$1"
 }
 
-# git branch --show-current / rev-parse --show-toplevel の呼び出しを固定応答で模倣するモック
+# git branch --show-current / rev-parse --git-common-dir の呼び出しを固定応答で模倣するモック
 create_git_mock() {
     local branch_output="$1"
-    local toplevel_output="$2"
+    local common_dir_output="$2"
     cat > "$BATS_TEST_TMPDIR/mock_bin/git" << MOCK_EOF
 #!/usr/bin/env bash
 case "\$3" in
   branch) echo "$branch_output" ;;
   rev-parse)
-    if [ -n "$toplevel_output" ]; then
-      echo "$toplevel_output"
+    if [ -n "$common_dir_output" ]; then
+      echo "$common_dir_output"
     else
       exit 1
     fi
@@ -154,7 +154,7 @@ MOCK_EOF
 }
 
 @test "workspace.repo.nameとbranchが取得できる場合はbranch | repo-name形式で表示する" {
-    create_git_mock "main" "/fake/agent-tools"
+    create_git_mock "main" "/fake/agent-tools/.git"
     input=$(jq -n --arg cwd "$BATS_TEST_TMPDIR" '{
       "model": {"display_name": "Claude"},
       "workspace": {"current_dir": $cwd, "repo": {"name": "agent-tools"}},
@@ -166,8 +166,8 @@ MOCK_EOF
     [[ "$plain" == *"main | "$'\xef\x90\x93'"  agent-tools"* ]]
 }
 
-@test "workspace.repoが無くtoplevel名が取れる場合はbranch | ディレクトリ名で表示する" {
-    create_git_mock "main" "/fake/other-repo"
+@test "workspace.repoが無くgit-common-dirが絶対パスで取れる場合はメインリポジトリ名で表示する" {
+    create_git_mock "main" "/fake/other-repo/.git"
     input=$(jq -n --arg cwd "$BATS_TEST_TMPDIR" '{
       "model": {"display_name": "Claude"},
       "workspace": {"current_dir": $cwd},
@@ -179,7 +179,25 @@ MOCK_EOF
     [[ "$plain" == *"main | "$'\xef\x90\x93'"  other-repo"* ]]
 }
 
-@test "workspace.repoもtoplevel名も取得できずbranchのみ取得できる場合はブランチ名のみ表示する(後方互換)" {
+@test "git worktree配下(cwdとリポジトリ名が異なる)でもgit-common-dirの親ディレクトリ名を表示する" {
+    # linked worktree では git-common-dir がメインリポジトリの絶対パスを返す。
+    # cwd (worktree自身のパス) の basename とは異なる名前になることを検証する。
+    local worktree_dir="$BATS_TEST_TMPDIR/agent-ps-worktree-display"
+    mkdir -p "$worktree_dir"
+    create_git_mock "feature/x" "/fake/agent-tools/.git"
+    input=$(jq -n --arg cwd "$worktree_dir" '{
+      "model": {"display_name": "Claude"},
+      "workspace": {"current_dir": $cwd},
+      "context_window": {"total_input_tokens": 100, "total_output_tokens": 0, "remaining_percentage": 90}
+    }')
+    run env CLAUDE_CODE_USE_VERTEX=1 bash -c "echo '$input' | \"$STATUSLINE\""
+    [ "$status" -eq 0 ]
+    plain=$(strip_ansi "$output")
+    [[ "$plain" == *"feature/x | "$'\xef\x90\x93'"  agent-tools"* ]]
+    [[ "$plain" != *"agent-ps-worktree-display"* ]]
+}
+
+@test "workspace.repoもgit-common-dirも取得できずbranchのみ取得できる場合はブランチ名のみ表示する(後方互換)" {
     create_git_mock "main" ""
     input=$(jq -n --arg cwd "$BATS_TEST_TMPDIR" '{
       "model": {"display_name": "Claude"},

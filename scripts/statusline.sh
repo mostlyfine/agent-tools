@@ -213,10 +213,15 @@ if { [ "$show_branch" -eq 1 ] || [ "$show_repo" -eq 1 ]; } && [ -n "$cwd" ] && [
   branch=$(git -C "$cwd" branch --show-current 2>/dev/null)
   if [ -n "$branch" ]; then
     # workspace.repo.name (originリモートから解析済み) を優先し、
-    # 無ければトップレベルディレクトリ名にフォールバックする。
+    # 無ければメインリポジトリの .git ディレクトリの親ディレクトリ名にフォールバックする。
+    # git worktree 配下では --show-toplevel が worktree 自身のパスを返してしまうため、
+    # worktree でも常にメインリポジトリを指す --git-common-dir を使う。
     if [ -z "$repo_name" ]; then
-      toplevel=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
-      [ -n "$toplevel" ] && repo_name=$(basename "$toplevel")
+      common_dir=$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+      if [ -n "$common_dir" ]; then
+        repo_root="${common_dir%/*}"
+        repo_name="${repo_root##*/}"
+      fi
     fi
     git_branch="${MAGENTA} ${branch}${RESET}"
     [ -n "$repo_name" ] && repo_str="${CYAN}  ${repo_name}${RESET}"
