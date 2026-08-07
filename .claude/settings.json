@@ -108,45 +108,26 @@
   },
   "enabledPlugins": {
     "superpowers@claude-plugins-official": true,
-    "commit-commands@claude-plugins-official": false,
     "context7@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "security-guidance@claude-plugins-official": false,
-    "feature-dev@claude-plugins-official": false,
-    "code-review@claude-plugins-official": false,
-    "andrej-karpathy-skills@multica-ai/andrej-karpathy-skills": false,
-    "learning@learning-skills": true,
-    "git-worktree@git-worktree": false
+    "skill-creator@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "multica-ai/andrej-karpathy-skills": {
-      "source": {
-        "source": "github",
-        "repo": "multica-ai/andrej-karpathy-skills"
-      }
-    },
-    "pskoett-skills": {
-      "source": {
-        "source": "github",
-        "repo": "pskoett/pskoett-skills"
-      }
-    },
-    "herness": {
-      "source": {
-        "source": "directory",
-        "path": "/Users/sawa/src/github.com/mostlyfine/herness"
-      }
-    },
     "learning-skills": {
       "source": {
-        "source": "directory",
-        "path": "/Users/sawa/src/github.com/mostlyfine/learning-skills"
+        "source": "github",
+        "repo": "mostlyfine/learning"
       }
     },
-    "git-worktree": {
+    "awesome-fetch": {
       "source": {
-        "source": "directory",
-        "path": "/Users/sawa/src/github.com/mostlyfine/git-worktree"
+        "source": "github",
+        "repo": "mostlyfine/awesome-fetch"
+      }
+    },
+    "github-flow": {
+      "source": {
+        "source": "github",
+        "repo": "mostlyfine/github-flow"
       }
     }
   },
