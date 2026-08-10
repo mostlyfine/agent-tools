@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+[ "$3" = "1" ] || exit 0
+
+GIT_DIR_ABS="$(git rev-parse --git-dir)"
+GIT_COMMON_DIR_ABS="$(git rev-parse --git-common-dir)"
+
+[ "$(realpath "$GIT_DIR_ABS")" = "$(realpath "$GIT_COMMON_DIR_ABS")" ] && exit 0
+
+mapfile -t wt_paths < <(git worktree list --porcelain | awk '/^worktree/ {print $2}')
+MAIN_REPO="${wt_paths[0]}"
+WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
+
+SYMLINK_TARGETS=(.venv node_modules .env .mise.local.toml mise.local.toml settings.local.json)
+
+PRUNE_ARGS=(-not -path "$MAIN_REPO/.git/*")
+for wt_path in "${wt_paths[@]:1}"; do
+  PRUNE_ARGS+=(-not -path "$wt_path/*")
+done
+
+NAME_ARGS=()
+for target in "${SYMLINK_TARGETS[@]}"; do
+  [ ${#NAME_ARGS[@]} -gt 0 ] && NAME_ARGS+=(-o)
+  NAME_ARGS+=(-name "$target")
+done
+
+find "$MAIN_REPO" -maxdepth 5 \( "${NAME_ARGS[@]}" \) "${PRUNE_ARGS[@]}" -print0 |
+while IFS= read -r -d '' src; do
+  relative_path="${src#"$MAIN_REPO"/}"
+  dst="$WORKTREE_ROOT/$relative_path"
+
+  [ -d "$(dirname "$dst")" ] || continue
+
+  rm -rf "$dst"
+  ln -s "$src" "$dst"
+  echo "post-checkout: symlinked $relative_path -> $src"
+done
+
