@@ -6,6 +6,8 @@ setup() {
     STATUSLINE="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)/scripts/statusline.sh"
     setup_mock_bin
     export CALL_LOG="$BATS_TEST_TMPDIR/calls.log"
+    export TMPDIR="$BATS_TEST_TMPDIR"
+    create_gh_mock ""
     rm -f /tmp/oauth-usage-cache.json
 }
 
@@ -210,4 +212,70 @@ MOCK_EOF
     [[ "$plain" == *"main"* ]]
     # branchの直後にリポジトリ名用のCYANカラーが続かないこと（repo_name未解決時に付与されないことの確認）
     [[ "$output" != *$'\033[35m\xef\x84\xa6 main\033[0m\033[2m | \033[0m\033[36m'* ]]
+}
+
+# gh pr view の呼び出しを記録し、PR があれば number と url を返すモック
+create_gh_mock() {
+    local pr_number="$1"
+    cat > "$BATS_TEST_TMPDIR/mock_bin/gh" << MOCK_EOF
+#!/usr/bin/env bash
+echo "gh \$*" >> "$BATS_TEST_TMPDIR/gh_calls.log"
+if [ -n "$pr_number" ]; then
+  echo "$pr_number"
+  echo "https://github.com/o/r/pull/$pr_number"
+else
+  exit 1
+fi
+MOCK_EOF
+    chmod +x "$BATS_TEST_TMPDIR/mock_bin/gh"
+}
+
+pr_input() {
+    jq -n --arg cwd "$BATS_TEST_TMPDIR" '{
+      "model": {"display_name": "Claude"},
+      "workspace": {"current_dir": $cwd, "repo": {"name": "agent-tools"}},
+      "context_window": {"total_input_tokens": 100, "total_output_tokens": 0, "remaining_percentage": 90}
+    }'
+}
+
+@test "PRがある場合は#番号をOSC 8ハイパーリンクで表示する" {
+    create_git_mock "feature/pr" "/fake/agent-tools/.git"
+    create_gh_mock "123"
+    input=$(pr_input)
+    run env CLAUDE_CODE_USE_VERTEX=1 bash -c "echo '$input' | \"$STATUSLINE\""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *$'\e]8;;https://github.com/o/r/pull/123\a#123\e]8;;\a'* ]]
+}
+
+@test "ghが失敗(PR無し)の場合は#セグメントを表示しない" {
+    create_git_mock "feature/nopr" "/fake/agent-tools/.git"
+    create_gh_mock ""
+    input=$(pr_input)
+    run env CLAUDE_CODE_USE_VERTEX=1 bash -c "echo '$input' | \"$STATUSLINE\""
+    [ "$status" -eq 0 ]
+    [ -f "$BATS_TEST_TMPDIR/gh_calls.log" ]
+    [[ "$output" != *"#"* ]]
+    [[ "$output" != *$'\e]8;;'* ]]
+}
+
+@test "--no-prの場合はghを呼ばずPRを表示しない" {
+    create_git_mock "feature/pr" "/fake/agent-tools/.git"
+    create_gh_mock "123"
+    input=$(pr_input)
+    run env CLAUDE_CODE_USE_VERTEX=1 bash -c "echo '$input' | \"$STATUSLINE\" --no-pr"
+    [ "$status" -eq 0 ]
+    [ ! -f "$BATS_TEST_TMPDIR/gh_calls.log" ]
+    [[ "$output" != *"#123"* ]]
+}
+
+@test "キャッシュ有効期限内はghを再度呼ばない" {
+    create_git_mock "feature/cache" "/fake/agent-tools/.git"
+    create_gh_mock "123"
+    input=$(pr_input)
+    run env CLAUDE_CODE_USE_VERTEX=1 bash -c "echo '$input' | \"$STATUSLINE\""
+    [ "$status" -eq 0 ]
+    run env CLAUDE_CODE_USE_VERTEX=1 bash -c "echo '$input' | \"$STATUSLINE\""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"#123"* ]]
+    [ "$(wc -l < "$BATS_TEST_TMPDIR/gh_calls.log")" -eq 1 ]
 }

@@ -5,6 +5,7 @@
 # --- Display flags (デフォルトは全項目表示) ---
 show_model=1
 show_branch=1
+show_pr=1
 show_repo=1
 show_cost=1
 show_diff=1
@@ -15,6 +16,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --no-model|-m) show_model=0 ;;
     --no-branch|-b) show_branch=0 ;;
+    --no-pr|-p) show_pr=0 ;;
     --no-repo|-r) show_repo=0 ;;
     --no-cost|-c) show_cost=0 ;;
     --no-diff|-d) show_diff=0 ;;
@@ -64,6 +66,7 @@ RED=$'\033[31m'
 MAGENTA=$'\033[35m'
 GRAY=$'\033[90m'
 WHITE=$'\033[97m'
+BRIGHT_BLUE=$'\033[94m'
 
 # --- Context window usage (backend非依存: JSON直値を優先) ---
 if [ -n "$cw_total_in" ] || [ -n "$cw_total_out" ]; then
@@ -228,6 +231,34 @@ if { [ "$show_branch" -eq 1 ] || [ "$show_repo" -eq 1 ]; } && [ -n "$cwd" ] && [
   fi
 fi
 
+# --- Pull request (gh) ---
+# statusLine 入力 JSON に PR 情報が無いため gh で取得し、ネットワーク負荷を避けるため60秒キャッシュする。
+_get_pr_info() {
+  local cache_key cache_file now_epoch cached_time
+  cache_key=$(printf '%s' "${cwd}${branch}" | shasum | cut -d' ' -f1)
+  cache_file="${TMPDIR:-/tmp}/claude-statusline-pr-${cache_key}"
+  now_epoch=$(date "+%s")
+  if [ -f "$cache_file" ]; then
+    cached_time=$(head -n 1 "$cache_file")
+    if [ $(( now_epoch - ${cached_time:-0} )) -lt 60 ]; then
+      tail -n +2 "$cache_file"
+      return
+    fi
+  fi
+  local result
+  result=$(cd "$cwd" && gh pr view --json number,url -q '.number,.url' 2>/dev/null) || result=""
+  printf '%s\n%s\n' "$now_epoch" "$result" > "$cache_file" 2>/dev/null
+  printf '%s\n' "$result"
+}
+
+pr_str=""
+if [ "$show_pr" -eq 1 ] && [ -n "$git_branch" ] && command -v gh >/dev/null 2>&1; then
+  { read -r pr_number; read -r pr_url; } <<< "$(_get_pr_info)"
+  if [ -n "$pr_number" ] && [ -n "$pr_url" ]; then
+    pr_str="${BRIGHT_BLUE}"$'\e]8;;'"${pr_url}"$'\a'"#${pr_number}"$'\e]8;;\a'"${RESET}"
+  fi
+fi
+
 # --- Format helpers ---
 [ "$show_current_context" -eq 1 ] && ctx_tokens_fmt=$(awk -v t="$ctx_tokens" 'BEGIN {
   if (t >= 1000) printf "%.1fk", t/1000;
@@ -250,6 +281,7 @@ _append_segment() {
 
 [ "$show_model" -eq 1 ] && _append_segment "${CYAN}󰚩${RESET}  ${BOLD}${model}${RESET}"
 [ "$show_branch" -eq 1 ] && [ -n "$git_branch" ] && _append_segment "$git_branch"
+[ -n "$pr_str" ] && _append_segment "$pr_str"
 [ "$show_repo" -eq 1 ] && [ -n "$repo_str" ] && _append_segment "$repo_str"
 [ "$show_diff" -eq 1 ] && { [ "$lines_added" -gt 0 ] || [ "$lines_removed" -gt 0 ]; } && _append_segment "${GREEN}+${lines_added}${RESET}/${RED}-${lines_removed}${RESET}"
 [ "$show_cost" -eq 1 ] && _append_segment "${BOLD}\$${cost_fmt}${RESET}"
